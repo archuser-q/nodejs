@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import {env} from './config/env.js'
-import routes from './routes/index.js'
+import routes from './routes/admin/index.js'
 
 import { NotFound, ErrorHandler } from './middlewares/ErrorHandler.js'
 
