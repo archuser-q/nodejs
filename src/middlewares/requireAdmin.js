@@ -1,9 +1,10 @@
 import { AppError } from "../utils/AppError.js"
 import { AUTH_COOKIE } from "../utils/cookie.js"
 import { verifyToken } from "../utils/jwt.js"
+import { query } from "../config/db.js"
 
 export const requireAdmin = async (req, res, next) => {
-    const token = req.cookie?.[AUTH_COOKIE]
+    const token = req.cookies?.[AUTH_COOKIE]
     if (!token) throw new AppError(401, 'Not logged in')
     
     let payload
@@ -20,7 +21,7 @@ export const requireAdmin = async (req, res, next) => {
     )
 
     const user = rows[0]
-    if (!user || user.role === 'admin' || user.status !==  'active'){
+    if (!user || user.role !== 'admin' || user.status !==  'active'){
         throw new AppError(403, 'You do not have sufficient priviledge')
     }
 

@@ -12,8 +12,8 @@ app.use(cors({
     origin: env.clientOrigin,
     credentials:  true
 }));
-app.use(express.json());
 app.use(cookieParser());
+app.use(express.json());
 
 app.use('/api', routes);
 
