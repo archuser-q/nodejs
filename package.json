@@ -2,9 +2,12 @@
   "name": "nodejs",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node-pg-migrate -m migrations --envPath .env -j sql",
+    "migrate:create": "node-pg-migrate create -m migrations -j sql"
   },
   "repository": {
     "type": "git",
@@ -13,7 +16,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/archuser-q/nodejs/issues"
   },
@@ -28,6 +31,7 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
+    "node-pg-migrate": "^9.0.0",
     "nodemon": "^3.1.14"
   }
 }
