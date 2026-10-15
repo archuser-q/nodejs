@@ -7,7 +7,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "migrate": "node-pg-migrate -m migrations --envPath .env -j sql",
-    "migrate:create": "node-pg-migrate create -m migrations -j sql"
+    "migrate:create": "node-pg-migrate create -m migrations -j sql",
+    "create-admin": "node scripts/create-admin.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +23,7 @@
   },
   "homepage": "https://github.com/archuser-q/nodejs#readme",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
