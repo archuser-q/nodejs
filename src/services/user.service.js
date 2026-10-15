@@ -45,3 +45,47 @@ export const updateUserStatus = async (id, status) => {
   if (!rows[0]) throw new AppError(404, 'User not found');
   return rows[0];
 };
+
+export const getUserDetail = async (id) => {
+  const [user, stats, addresses, orders] = await Promise.all([
+    query(
+      `SELECT id, full_name, email, phone, avatar_url, role, status, phone_verified, created_at, last_login_at
+       FROM users WHERE id = $1 AND role <> 'admin'`,
+      [id],
+    ),
+    query(
+      `SELECT COUNT(*)::int AS total_orders,
+              COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_orders,
+              COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_orders,
+              COALESCE(SUM(final_price) FILTER (WHERE status = 'completed'), 0)::float8 AS total_spent
+       FROM orders WHERE customer_id = $1`,
+      [id],
+    ),
+    query(
+      `SELECT id, label, address_text, is_default
+       FROM customer_addresses WHERE customer_id = $1
+       ORDER BY is_default DESC, created_at DESC`,
+      [id],
+    ),
+    query(
+      `SELECT o.id, o.code, o.status, COALESCE(o.final_price, o.estimated_price)::float8 AS price, o.created_at,
+              s.name AS service_name, w.full_name AS worker_name
+       FROM orders o
+       JOIN services s ON s.id = o.service_id
+       LEFT JOIN users w ON w.id = o.worker_id
+       WHERE o.customer_id = $1
+       ORDER BY o.created_at DESC
+       LIMIT 10`,
+      [id],
+    ),
+  ]);
+
+  if (!user.rows[0]) throw new AppError(404, 'User not found');
+
+  return {
+    user: user.rows[0],
+    stats: stats.rows[0],
+    addresses: addresses.rows,
+    recentOrders: orders.rows,
+  };
+};

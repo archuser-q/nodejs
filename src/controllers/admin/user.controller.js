@@ -23,3 +23,8 @@ export const updateStatus = async (req, res) => {
   const user = await userService.updateUserStatus(req.params.id, status);
   res.json({ message: status === 'locked' ? 'Account locked' : 'Account unlocked', user });
 };
+
+export const detail = async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) throw new AppError(400, 'Invalid id');
+  res.json(await userService.getUserDetail(req.params.id));
+};
