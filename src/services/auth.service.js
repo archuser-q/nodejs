@@ -15,7 +15,7 @@ export const loginAdmin = async(identifier, password)=>{
 
     const ok = user?.password_hash && (await bcrypt.compare(password, user.password_hash))
     if (!ok) throw new AppError(401, 'Email or phone or password is incorrect');
-    if (user.role !== 'admin') throw new AppError(403, 'You are not authorized to access this resource');
+    if (user.role !== 'admin') throw new AppError(403, 'You do not have sufficient priviledge');
     if (user.status !== 'active') throw new AppError(403, 'Your account is not active');
 
     await query('update users set last_login_at = now() where id = $1', [user.id]);

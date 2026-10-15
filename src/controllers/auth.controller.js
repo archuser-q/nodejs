@@ -14,3 +14,17 @@ export const login = async(req, res) => {
         user
     });
 }
+
+export const me = async(req, res) => {
+    res.json({
+        user: req.user
+    })
+}
+
+export const logout = async(req, res) => {
+    const { maxAge, ...options } = authCookieOptions
+    res.clearCookie(AUTH_COOKIE, options);
+    res.json({
+        message: 'Log out'
+    })
+}
