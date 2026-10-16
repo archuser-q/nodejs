@@ -1,0 +1,143 @@
+import { pool, query } from '../config/db.js';
+import { AppError } from '../utils/AppError.js';
+
+export const listOrders = async ({ search, status, from, to, page, pageSize }) => {
+  const params = [];
+  const conditions = ['TRUE'];
+
+  if (status) {
+    params.push(status);
+    conditions.push(`o.status = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    conditions.push(`o.created_at >= $${params.length}::date`);
+  }
+  if (to) {
+    params.push(to);
+    conditions.push(`o.created_at < $${params.length}::date + 1`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    const p = `$${params.length}`;
+    conditions.push(`(o.code ILIKE ${p} OR c.full_name ILIKE ${p} OR c.phone ILIKE ${p} OR w.full_name ILIKE ${p})`);
+  }
+
+  params.push(pageSize, (page - 1) * pageSize);
+
+  const { rows } = await query(
+    `SELECT o.id, o.code, o.status, o.matching_mode, o.created_at, o.scheduled_at, o.address_text,
+            COALESCE(o.final_price, o.estimated_price)::float8 AS price,
+            c.full_name AS customer_name, c.phone AS customer_phone,
+            w.full_name AS worker_name, s.name AS service_name, cat.name AS category_name,
+            COUNT(*) OVER()::int AS total
+     FROM orders o
+     JOIN users c ON c.id = o.customer_id
+     JOIN services s ON s.id = o.service_id
+     JOIN service_categories cat ON cat.id = s.category_id
+     LEFT JOIN users w ON w.id = o.worker_id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY o.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+
+  const total = rows[0]?.total ?? 0;
+  return { items: rows.map(({ total, ...order }) => order), total };
+};
+
+export const getOrderDetail = async (id) => {
+  const [order, history, quotes, payments, review] = await Promise.all([
+    query(
+      `SELECT o.id, o.code, o.status, o.matching_mode, o.address_text, o.description, o.image_urls,
+              o.scheduled_at, o.created_at, o.accepted_at, o.started_at, o.completed_at,
+              o.cancelled_at, o.cancel_reason, o.warranty_until,
+              o.estimated_price::float8 AS estimated_price, o.extra_amount::float8 AS extra_amount,
+              o.final_price::float8 AS final_price, o.commission_amount::float8 AS commission_amount,
+              ST_Y(o.location::geometry) AS lat, ST_X(o.location::geometry) AS lng,
+              s.name AS service_name, cat.name AS category_name,
+              c.id AS customer_id, c.full_name AS customer_name, c.phone AS customer_phone,
+              w.id AS worker_id, w.full_name AS worker_name, w.phone AS worker_phone,
+              cb.full_name AS cancelled_by_name
+       FROM orders o
+       JOIN services s ON s.id = o.service_id
+       JOIN service_categories cat ON cat.id = s.category_id
+       JOIN users c ON c.id = o.customer_id
+       LEFT JOIN users w ON w.id = o.worker_id
+       LEFT JOIN users cb ON cb.id = o.cancelled_by
+       WHERE o.id = $1`,
+      [id],
+    ),
+    query(
+      `SELECT h.id, h.from_status, h.to_status, h.note, h.created_at, u.full_name AS changed_by_name
+       FROM order_status_history h
+       LEFT JOIN users u ON u.id = h.changed_by
+       WHERE h.order_id = $1
+       ORDER BY h.created_at`,
+      [id],
+    ),
+    query(
+      `SELECT id, description, amount::float8 AS amount, status, created_at
+       FROM order_extra_quotes WHERE order_id = $1 ORDER BY created_at`,
+      [id],
+    ),
+    query(
+      `SELECT id, method, amount::float8 AS amount, status, provider_txn_id, paid_at, created_at
+       FROM payments WHERE order_id = $1 ORDER BY created_at`,
+      [id],
+    ),
+    query(
+      `SELECT id, rating, comment, is_flagged, created_at FROM reviews WHERE order_id = $1`,
+      [id],
+    ),
+  ]);
+
+  if (!order.rows[0]) throw new AppError(404, 'Order not found');
+
+  return {
+    order: order.rows[0],
+    history: history.rows,
+    quotes: quotes.rows,
+    payments: payments.rows,
+    review: review.rows[0] ?? null,
+  };
+};
+
+export const cancelOrder = async (id, adminId, reason) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      'SELECT status, worker_id FROM orders WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    const order = rows[0];
+    if (!order) throw new AppError(404, 'Order not found');
+    if (['completed', 'cancelled'].includes(order.status)) {
+      throw new AppError(400, `Cannot cancel a ${order.status} order`);
+    }
+
+    await client.query(
+      `UPDATE orders
+       SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $2, cancel_reason = $3, updated_at = NOW()
+       WHERE id = $1`,
+      [id, adminId, reason],
+    );
+    await client.query(
+      `INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note)
+       VALUES ($1, $2, 'cancelled', $3, $4)`,
+      [id, order.status, adminId, reason],
+    );
+    if (order.worker_id) {
+      await client.query('UPDATE workers SET is_busy = FALSE WHERE user_id = $1', [order.worker_id]);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
