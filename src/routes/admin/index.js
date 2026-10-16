@@ -11,6 +11,7 @@ import serviceRoutes from './service.routes.js';
 import orderRoutes from './order.routes.js';
 import complaintRoutes from './complaint.routes.js';
 import reportRoutes from './report.routes.js';
+import matchingRoutes from './matching.routes.js';
 
 const router = Router();
 
@@ -23,5 +24,6 @@ router.use('/admin/services', requireAdmin, serviceRoutes);
 router.use('/admin/orders', requireAdmin, orderRoutes);
 router.use('/admin/complaints', requireAdmin, complaintRoutes);
 router.use('/admin/reports', requireAdmin, reportRoutes);
+router.use('/admin/matching-configs', requireAdmin, matchingRoutes);
 
 export default router;  
