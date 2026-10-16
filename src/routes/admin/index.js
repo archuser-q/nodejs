@@ -10,6 +10,7 @@ import categoryRoutes from './category.routes.js';
 import serviceRoutes from './service.routes.js';
 import orderRoutes from './order.routes.js';
 import complaintRoutes from './complaint.routes.js';
+import reportRoutes from './report.routes.js';
 
 const router = Router();
 
@@ -21,5 +22,6 @@ router.use('/admin/categories', requireAdmin, categoryRoutes);
 router.use('/admin/services', requireAdmin, serviceRoutes);
 router.use('/admin/orders', requireAdmin, orderRoutes);
 router.use('/admin/complaints', requireAdmin, complaintRoutes);
+router.use('/admin/reports', requireAdmin, reportRoutes);
 
 export default router;  
