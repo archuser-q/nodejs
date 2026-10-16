@@ -12,10 +12,11 @@ export const ErrorHandler = (err, req, res, next) => {
             message: err.message
         });
     }
-    if (err.type === 'entity.parse.failed'){
-        return res.status(400).json({
-            message: 'Invalid  JSON body'
-        })
+    if (err.code === '23505') {
+        return res.status(409).json({ message: 'Already exists' });
+    }
+    if (err.code === '23503') {
+        return res.status(400).json({ message: 'Related record not found' });
     }
     console.error(err);
     res.status(500).json({
