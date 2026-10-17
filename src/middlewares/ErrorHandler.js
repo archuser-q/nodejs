@@ -12,6 +12,9 @@ export const ErrorHandler = (err, req, res, next) => {
             message: err.message
         });
     }
+    if (err.type === 'entity.parse.failed') {
+        return res.status(400).json({ message: 'Invalid JSON body' });
+    }
     if (err.code === '23505') {
         return res.status(409).json({ message: 'Already exists' });
     }

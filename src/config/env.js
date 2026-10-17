@@ -15,4 +15,6 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN,
   clientOrigin: process.env.CLIENT_ORIGIN,
   isProd: process.env.NODE_ENV === 'production',
+  // App di động giữ đăng nhập lâu hơn web quản trị
+  mobileJwtExpiresIn: process.env.MOBILE_JWT_EXPIRES_IN || '30d',
 };
