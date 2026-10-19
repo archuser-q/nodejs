@@ -5,6 +5,7 @@ import { AppError } from '../../utils/AppError.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { CHAT_STATUSES, getOwnedOrder, withTransaction } from './common.js';
 import { emitOrderUpdated, notify } from './notify.service.js';
+import { recordPaidOrder } from '../worker/finance.service.js'; // [B] ví thợ + hoa hồng khi đơn được thanh toán
 
 const money = (n) => `${Number(n).toLocaleString('vi-VN')}đ`;
 
@@ -35,8 +36,8 @@ export const listMessages = async (userId, orderId, { beforeId, limit }) => {
   return rows;
 };
 
-/** Gửi tin nhắn — dùng chung cho khách và thợ (senderId là người gửi) */
-export const sendMessage = async (senderId, orderId, content) => {
+/** Gửi tin nhắn — dùng chung cho khách và thợ (senderId là người gửi). [B] thêm imageUrl (tuỳ chọn) cho ảnh trong chat */
+export const sendMessage = async (senderId, orderId, content, imageUrl = null) => {
   const { rows: found } = await q(
     'SELECT id, code, status, customer_id, worker_id FROM orders WHERE id = $1 AND (customer_id = $2 OR worker_id = $2)',
     [orderId, senderId],
@@ -48,8 +49,8 @@ export const sendMessage = async (senderId, orderId, content) => {
   }
 
   const { rows } = await q(
-    `INSERT INTO messages (order_id, sender_id, content) VALUES ($1, $2, $3) RETURNING ${MESSAGE_FIELDS}`,
-    [orderId, senderId, content],
+    `INSERT INTO messages (order_id, sender_id, content, image_url) VALUES ($1, $2, $3, $4) RETURNING ${MESSAGE_FIELDS}`,
+    [orderId, senderId, content, imageUrl],
   );
   const message = rows[0];
   const receiverId = senderId === order.customer_id ? order.worker_id : order.customer_id;
@@ -58,7 +59,7 @@ export const sendMessage = async (senderId, orderId, content) => {
   emitToUser(order.worker_id, 'message:new', message);
   await notify(receiverId, {
     title: senderId === order.customer_id ? 'Tin nhắn từ khách hàng' : 'Tin nhắn từ thợ',
-    body: content.length > 80 ? `${content.slice(0, 80)}…` : content,
+    body: !content ? '[Hình ảnh]' : content.length > 80 ? `${content.slice(0, 80)}…` : content,
     type: 'chat',
     data: { order_id: order.id, message_id: message.id },
   });
@@ -125,7 +126,7 @@ export const createPayment = async (customerId, orderId, method) => {
 
 /**
  * Ghi nhận thanh toán thành công. Phần cộng/trừ ví thợ, hoa hồng (worker_transactions)
- * thuộc module thu nhập của App Thợ — không xử lý ở đây.
+ * do module thu nhập của App Thợ xử lý: recordPaidOrder() gọi ngay trong transaction bên dưới.
  */
 export const settlePayment = (paymentId) =>
   withTransaction(async (db) => {
@@ -145,6 +146,8 @@ export const settlePayment = (paymentId) =>
        RETURNING id, code, status, customer_id, worker_id`,
       [payment.order_id, payment.amount],
     );
+    // [B] Chốt hoa hồng + cộng/trừ ví thợ trong cùng transaction (idempotent)
+    await recordPaidOrder(db, payment.order_id);
     return { payment, order: ord[0] };
   }).then(async ({ payment, order }) => {
     emitOrderUpdated(order);
@@ -301,7 +304,8 @@ export const listMyComplaints = async (customerId) => {
     `SELECT c.id, c.order_id, o.code AS order_code, c.type, c.title, c.content, c.status, c.resolution,
             c.created_at, c.resolved_at
      FROM complaints c JOIN orders o ON o.id = c.order_id
-     WHERE c.customer_id = $1 ORDER BY c.created_at DESC LIMIT 100`,
+     WHERE c.customer_id = $1 AND c.reporter_id IS NULL -- [B] không hiện báo cáo sự cố do thợ gửi
+     ORDER BY c.created_at DESC LIMIT 100`,
     [customerId],
   );
   return rows;

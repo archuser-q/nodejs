@@ -1,5 +1,5 @@
 -- Up Migration
-CREATE EXTENSION postgis;
+CREATE EXTENSION IF NOT EXISTS postgis; -- [B] image postgis/postgis đã tạo sẵn extension này trong CSDL mặc định
 
 CREATE TYPE user_role AS ENUM ('admin', 'worker', 'customer');
 CREATE TYPE user_status AS ENUM ('active', 'locked', 'deleted');

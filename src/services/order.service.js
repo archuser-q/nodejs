@@ -1,5 +1,8 @@
 import { pool, query } from '../config/db.js';
 import { AppError } from '../utils/AppError.js';
+import { emitToUser } from '../realtime/socket.js';
+import { emitOrderUpdated, notify } from './customer/notify.service.js';
+import { refreshAvailability } from './worker/state.js';
 
 export const listOrders = async ({ search, status, from, to, page, pageSize }) => {
   const params = [];
@@ -105,11 +108,12 @@ export const getOrderDetail = async (id) => {
 
 export const cancelOrder = async (id, adminId, reason) => {
   const client = await pool.connect();
+  let after;
   try {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      'SELECT status, worker_id FROM orders WHERE id = $1 FOR UPDATE',
+      'SELECT id, code, status, customer_id, worker_id FROM orders WHERE id = $1 FOR UPDATE',
       [id],
     );
     const order = rows[0];
@@ -129,15 +133,28 @@ export const cancelOrder = async (id, adminId, reason) => {
        VALUES ($1, $2, 'cancelled', $3, $4)`,
       [id, order.status, adminId, reason],
     );
-    if (order.worker_id) {
-      await client.query('UPDATE workers SET is_busy = FALSE WHERE user_id = $1', [order.worker_id]);
-    }
+    // [B] đóng lời mời đang mở, tính lại cờ bận của thợ (thay vì đặt thẳng FALSE)
+    const { rows: closed } = await client.query(
+      `UPDATE order_offers SET status = 'expired', responded_at = NOW(), reason = 'closed'
+       WHERE order_id = $1 AND status = 'offered' RETURNING id, worker_id`,
+      [id],
+    );
+    if (order.worker_id) await refreshAvailability(client, order.worker_id);
 
     await client.query('COMMIT');
+    after = { order, closed };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
+
+  // [B] sau khi COMMIT: báo cho khách + thợ (thợ có thể đang trên đường tới), gỡ lời mời trên app thợ
+  const { order, closed } = after;
+  for (const f of closed) emitToUser(Number(f.worker_id), 'offer:closed', { offer_id: Number(f.id), order_id: Number(id) });
+  emitOrderUpdated({ ...order, status: 'cancelled' });
+  const body = `Đơn ${order.code} đã bị huỷ bởi quản trị viên${reason ? `: ${reason}` : ''}`;
+  await notify(order.customer_id, { title: 'Đơn hàng đã bị huỷ', body, type: 'order', data: { order_id: Number(id) } });
+  if (order.worker_id) await notify(order.worker_id, { title: 'Đơn đã bị huỷ', body, type: 'order', data: { order_id: Number(id) } });
 };

@@ -13,6 +13,7 @@ const SELECT = `
          m.w_distance::float8 AS w_distance, m.w_trust::float8 AS w_trust, m.w_skill::float8 AS w_skill,
          m.w_acceptance::float8 AS w_acceptance, m.w_workload::float8 AS w_workload,
          m.max_radius_km::float8 AS max_radius_km, m.offer_timeout_seconds, m.batch_window_seconds,
+         m.mode, m.max_offers,
          m.is_active, m.created_at, m.updated_at, u.full_name AS updated_by_name,
          (SELECT COUNT(*) FROM orders o WHERE o.matching_config_id = m.id)::int AS order_count
   FROM matching_configs m
@@ -33,6 +34,9 @@ export const listConfigs = async () => {
   return rows;
 };
 
+// [B] Cột tuỳ chọn: chế độ ghép + k (không gửi thì giữ giá trị cũ / mặc định của bảng)
+const OPTIONAL = ['mode', 'max_offers'];
+
 export const createConfig = async (data, adminId) => {
   const { rows } = await query(
     `INSERT INTO matching_configs (${FIELDS.join(', ')}, updated_by)
@@ -40,7 +44,17 @@ export const createConfig = async (data, adminId) => {
      RETURNING id`,
     [...FIELDS.map((f) => data[f]), adminId],
   );
+  await setOptional(rows[0].id, data);
   return rows[0];
+};
+
+const setOptional = async (id, data) => {
+  const keys = OPTIONAL.filter((k) => data[k] !== undefined);
+  if (!keys.length) return;
+  await query(
+    `UPDATE matching_configs SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`,
+    [id, ...keys.map((k) => data[k])],
+  );
 };
 
 export const updateConfig = async (id, data, adminId) => {
@@ -56,6 +70,7 @@ export const updateConfig = async (id, data, adminId) => {
      WHERE id = $1`,
     [id, ...FIELDS.map((f) => data[f]), adminId],
   );
+  await setOptional(id, data);
 };
 
 export const activateConfig = async (id, adminId) => {

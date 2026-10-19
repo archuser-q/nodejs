@@ -10,7 +10,13 @@
     "migrate:create": "node-pg-migrate create -m migrations -j sql",
     "create-admin": "node scripts/create-admin.js",
     "simulate": "node dev-tools/simulate-worker.js",
-    "seed:dev": "node dev-tools/seed-dev.js"
+    "seed:dev": "node dev-tools/seed-dev.js",
+    "seed:demo": "node scripts/seed-demo.js",
+    "bots": "node scripts/worker-bots.js",
+    "demo:customer": "node scripts/demo-customer.js",
+    "benchmark": "node scripts/benchmark-matching.js",
+    "test": "node test/setup-db.js && node --test --test-concurrency=1 \"test/*.test.js\"",
+    "test:algo": "node --test test/algorithms.test.js"
   },
   "repository": {
     "type": "git",
@@ -32,11 +38,14 @@
     "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0",
+    "nodemailer": "^6.10.1",
     "pg": "^8.23.1",
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
     "node-pg-migrate": "^9.0.0",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "socket.io-client": "4.8"
   }
 }

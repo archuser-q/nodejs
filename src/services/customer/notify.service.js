@@ -1,5 +1,6 @@
 import { q as query, sql } from '../../config/db.js';
 import { emitToUser } from '../../realtime/socket.js';
+import { sendPush } from '../push.service.js'; // [B] thông báo đẩy Expo (tắt mặc định, PUSH_ENABLED)
 
 /**
  * Tạo thông báo + đẩy realtime. Gọi SAU khi transaction đã COMMIT.
@@ -13,6 +14,7 @@ export const notify = async (userId, { title, body = null, type, data = null }) 
     [userId, title, body, type, data],
   );
   emitToUser(userId, 'notification:new', rows[0]);
+  sendPush(userId, rows[0]); // không await: push chậm không làm chậm API
   return rows[0];
 };
 

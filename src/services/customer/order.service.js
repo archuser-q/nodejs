@@ -5,6 +5,8 @@ import {
 } from './common.js';
 import { dispatchOffers, getConfig, refreshOffers } from './dispatch.service.js';
 import { emitOrderUpdated, notify } from './notify.service.js';
+import { emitToUser } from '../../realtime/socket.js';
+import { refreshAvailability } from '../worker/state.js'; // [B]
 
 const WORKER_BRIEF = `CASE WHEN o.worker_id IS NULL THEN NULL ELSE json_build_object(
     'id', wu.id, 'full_name', wu.full_name, 'phone', wu.phone, 'avatar_url', wu.avatar_url,
@@ -182,15 +184,19 @@ export const cancelOrder = async (customerId, id, reason) => {
       [id, customerId, reason],
     );
     await addHistory(db, id, o.status, 'cancelled', customerId, reason);
-    await sql(
+    // [B] reason 'closed': không tính là thợ bỏ lỡ; trả về để báo app thợ gỡ lời mời ngay
+    const { rows: closed } = await sql(
       db,
-      `UPDATE order_offers SET status = 'expired', responded_at = NOW() WHERE order_id = $1 AND status = 'offered'`,
+      `UPDATE order_offers SET status = 'expired', responded_at = NOW(), reason = 'closed'
+       WHERE order_id = $1 AND status = 'offered' RETURNING id, worker_id`,
       [id],
     );
-    if (o.worker_id) await sql(db, 'UPDATE workers SET is_busy = FALSE WHERE user_id = $1', [o.worker_id]);
-    return { ...o, status: 'cancelled' };
+    // [B] tính lại cờ bận (thợ có thể còn lịch hẹn khác sắp tới) thay vì đặt thẳng FALSE
+    if (o.worker_id) await refreshAvailability(db, o.worker_id);
+    return { ...o, status: 'cancelled', closedOffers: closed };
   });
 
+  for (const f of order.closedOffers) emitToUser(Number(f.worker_id), 'offer:closed', { offer_id: Number(f.id), order_id: Number(order.id) }); // [B]
   emitOrderUpdated(order);
   if (order.worker_id) {
     await notify(order.worker_id, {

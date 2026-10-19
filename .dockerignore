@@ -1,0 +1,9 @@
+node_modules
+media
+.env
+.git
+.vscode
+*.log
+# Công cụ giả lập thợ của app khách: mở /api/dev KHÔNG cần đăng nhập khi NODE_ENV != production.
+# Đã có app thợ + thợ ảo (bots) nên không đưa vào image demo.
+dev-tools

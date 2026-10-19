@@ -36,6 +36,13 @@ const parseConfig = (body = {}) => {
   data.max_radius_km = number(body, 'max_radius_km', 1, 50);
   data.offer_timeout_seconds = Math.round(number(body, 'offer_timeout_seconds', 10, 300));
   data.batch_window_seconds = Math.round(number(body, 'batch_window_seconds', 5, 120));
+  // [B] Chế độ ghép do hệ thống chạy (instant | batch | auto) và k = số thợ nhận offer mỗi đợt.
+  // Không gửi thì giữ nguyên giá trị cũ (tạo mới: auto, k = 3) để form hiện tại của dashboard vẫn dùng được.
+  if (body.mode !== undefined) {
+    if (!['instant', 'batch', 'auto'].includes(body.mode)) throw new AppError(400, 'mode must be instant, batch or auto');
+    data.mode = body.mode;
+  }
+  if (body.max_offers !== undefined) data.max_offers = Math.round(number(body, 'max_offers', 1, 10));
   return data;
 };
 

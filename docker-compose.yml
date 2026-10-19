@@ -1,0 +1,83 @@
+# Backend THỢ NHANH (Node.js) + CSDL PostgreSQL/PostGIS
+#   docker compose up -d --build        -> API: http://localhost:3000  (kiểm tra: /api/health)
+#   docker compose logs -f api          -> xem log (bộ điều phối ghép cặp chạy trong API)
+#   docker compose --profile bots up -d -> bật thêm "thợ ảo" tự nhận đơn (demo nhiều thợ)
+#   docker compose exec api npm run demo:customer -- order   -> đóng vai khách đặt 1 đơn gần thợ demo
+# Không bắt buộc có file .env: mọi biến đều có giá trị mặc định cho môi trường demo (xem .env.example).
+name: tho-nhanh-node
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thonhanh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thonhanh}
+      POSTGRES_DB: ${POSTGRES_DB:-thonhanh}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${DB_PORT:-5433}:5432"   # pgAdmin / DBeaver: localhost:5433, user/pass thonhanh
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thonhanh} -d ${POSTGRES_DB:-thonhanh}"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: .
+    image: tho-nhanh/api-node:latest
+    environment: &api-env
+      PORT: 3000
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-thonhanh}:${POSTGRES_PASSWORD:-thonhanh}@db:5432/${POSTGRES_DB:-thonhanh}
+      JWT_SECRET: ${JWT_SECRET:-doi-chuoi-bi-mat-nay-truoc-khi-chay-that-0123456789}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      MOBILE_JWT_EXPIRES_IN: ${MOBILE_JWT_EXPIRES_IN:-30d}
+      # Web quản trị (Vite) + bản web của app; IP LAN bất kỳ (điện thoại / máy khác cùng Wi-Fi) theo CORS_ORIGIN_REGEX
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173,http://localhost:8081,http://localhost:8082}
+      CORS_ORIGIN_REGEX: ${CORS_ORIGIN_REGEX:-^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$$}
+      SEED_DEMO: ${SEED_DEMO:-true}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      MEDIA_DIR: /app/media
+      # Ghép cặp / ví (mặc định hợp lý cho demo)
+      LOCATION_MAX_AGE_MINUTES: ${LOCATION_MAX_AGE_MINUTES:-10}
+      COMMISSION_RATE: ${COMMISSION_RATE:-0.15}
+      WITHDRAWAL_AUTO_APPROVE: ${WITHDRAWAL_AUTO_APPROVE:-true}
+      # Đăng nhập Google / Facebook (để trống = ẩn nút trên app)
+      GOOGLE_WEB_CLIENT_ID: ${GOOGLE_WEB_CLIENT_ID:-}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID:-}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      # Email quên mật khẩu (để trống: mã in ra log + trả về app khi không phải production)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+    volumes:
+      - media:/app/media
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Thợ ảo: bật N thợ seed sẵn (tho.ao01..12) quanh Hồ Gươm, tự nhận đơn và làm đến khi xong
+  bots:
+    profiles: ["bots"]
+    image: tho-nhanh/api-node:latest
+    command: ["node", "scripts/worker-bots.js", "--count", "${BOT_COUNT:-8}", "--accept", "${BOT_ACCEPT:-0.85}"]
+    environment:
+      <<: *api-env
+      API_URL: http://api:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    stop_grace_period: 15s
+
+volumes:
+  pgdata:
+  media:
