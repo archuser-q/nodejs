@@ -3,7 +3,7 @@ import { AppError } from '../utils/AppError.js';
 
 const buildUpdate = (data, allowed) => {
   const keys = allowed.filter((key) => data[key] !== undefined);
-  if (!keys.length) throw new AppError(400, 'Nothing to update');
+  if (!keys.length) throw new AppError(400, 'Không có thông tin nào để cập nhật');
   return {
     set: keys.map((key, i) => `${key} = $${i + 2}`).join(', '),
     values: keys.map((key) => data[key]),
@@ -38,7 +38,7 @@ export const updateCategory = async (id, data) => {
     `UPDATE service_categories SET ${set} WHERE id = $1 RETURNING *`,
     [id, ...values],
   );
-  if (!rows[0]) throw new AppError(404, 'Category not found');
+  if (!rows[0]) throw new AppError(404, 'Không tìm thấy danh mục');
   return rows[0];
 };
 
@@ -86,6 +86,6 @@ export const updateService = async (id, data) => {
     `UPDATE services SET ${set}, updated_at = NOW() WHERE id = $1 RETURNING *`,
     [id, ...values],
   );
-  if (!rows[0]) throw new AppError(404, 'Service not found');
+  if (!rows[0]) throw new AppError(404, 'Không tìm thấy dịch vụ');
   return rows[0];
 };

@@ -16,13 +16,13 @@ export const report = async (req, res) => {
   const to = req.query.to ?? today();
   const from = req.query.from ?? daysAgo(29);
 
-  if (!GROUPS[groupBy]) throw new AppError(400, 'groupBy must be day, week or month');
-  if (!isDate(from) || !isDate(to)) throw new AppError(400, 'Invalid date');
-  if (from > to) throw new AppError(400, 'from must be before to');
+  if (!GROUPS[groupBy]) throw new AppError(400, 'Kiểu nhóm phải là ngày, tuần hoặc tháng');
+  if (!isDate(from) || !isDate(to)) throw new AppError(400, 'Ngày không hợp lệ');
+  if (from > to) throw new AppError(400, 'Ngày bắt đầu phải trước ngày kết thúc');
 
   const days = (Date.parse(to) - Date.parse(from)) / 86400000 + 1;
   if (days > GROUPS[groupBy]) {
-    throw new AppError(400, `Range too long for groupBy=${groupBy} (max ${GROUPS[groupBy]} days)`);
+    throw new AppError(400, `Khoảng thời gian quá dài (tối đa ${GROUPS[groupBy]} ngày với kiểu nhóm này)`);
   }
 
   res.json({ from, to, groupBy, ...(await reportService.getReport({ from, to, groupBy })) });

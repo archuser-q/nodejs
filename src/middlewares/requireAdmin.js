@@ -5,13 +5,13 @@ import { query } from "../config/db.js"
 
 export const requireAdmin = async (req, res, next) => {
     const token = req.cookies?.[AUTH_COOKIE]
-    if (!token) throw new AppError(401, 'Not logged in')
+    if (!token) throw new AppError(401, 'Bạn chưa đăng nhập')
     
     let payload
     try{
         payload = verifyToken(token)
     } catch{
-        throw new AppError(401, 'Session expired, please log in again')
+        throw new AppError(401, 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại')
     }
 
     const {rows} = await query(
@@ -22,7 +22,7 @@ export const requireAdmin = async (req, res, next) => {
 
     const user = rows[0]
     if (!user || user.role !== 'admin' || user.status !==  'active'){
-        throw new AppError(403, 'You do not have sufficient priviledge')
+        throw new AppError(403, 'Bạn không có quyền truy cập trang quản trị')
     }
 
     req.user = user; 

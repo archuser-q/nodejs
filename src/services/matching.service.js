@@ -25,7 +25,7 @@ const getUsage = async (client, id) => {
      FROM matching_configs WHERE id = $1`,
     [id],
   );
-  if (!rows[0]) throw new AppError(404, 'Config not found');
+  if (!rows[0]) throw new AppError(404, 'Không tìm thấy cấu hình');
   return rows[0];
 };
 
@@ -60,7 +60,7 @@ const setOptional = async (id, data) => {
 export const updateConfig = async (id, data, adminId) => {
   const usage = await getUsage(pool, id);
   if (usage.order_count > 0) {
-    throw new AppError(400, 'This config has been used by orders. Duplicate it to make changes.');
+    throw new AppError(400, 'Cấu hình đã được đơn hàng sử dụng. Hãy nhân bản để chỉnh sửa.');
   }
 
   await query(
@@ -94,8 +94,8 @@ export const activateConfig = async (id, adminId) => {
 
 export const deleteConfig = async (id) => {
   const usage = await getUsage(pool, id);
-  if (usage.is_active) throw new AppError(400, 'Cannot delete the active config');
-  if (usage.order_count > 0) throw new AppError(400, 'Cannot delete a config that has been used by orders');
+  if (usage.is_active) throw new AppError(400, 'Không xoá được cấu hình đang áp dụng');
+  if (usage.order_count > 0) throw new AppError(400, 'Không xoá được cấu hình đã được đơn hàng sử dụng');
   await query('DELETE FROM matching_configs WHERE id = $1', [id]);
 };
 

@@ -42,7 +42,7 @@ export const updateUserStatus = async (id, status) => {
      RETURNING id, status`,
     [id, status],
   );
-  if (!rows[0]) throw new AppError(404, 'User not found');
+  if (!rows[0]) throw new AppError(404, 'Không tìm thấy người dùng');
   return rows[0];
 };
 
@@ -80,7 +80,7 @@ export const getUserDetail = async (id) => {
     ),
   ]);
 
-  if (!user.rows[0]) throw new AppError(404, 'User not found');
+  if (!user.rows[0]) throw new AppError(404, 'Không tìm thấy người dùng');
 
   return {
     user: user.rows[0],

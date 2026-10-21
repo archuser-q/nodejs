@@ -50,11 +50,11 @@ export const listOrders = async ({ search, status, from, to, page, pageSize }) =
 };
 
 export const getOrderDetail = async (id) => {
-  const [order, history, quotes, payments, review] = await Promise.all([
+  const [order, history, quotes, payments, review, photos, offers, trail, dispatch] = await Promise.all([
     query(
       `SELECT o.id, o.code, o.status, o.matching_mode, o.address_text, o.description, o.image_urls,
               o.scheduled_at, o.created_at, o.accepted_at, o.started_at, o.completed_at,
-              o.cancelled_at, o.cancel_reason, o.warranty_until,
+              o.cancelled_at, o.cancel_reason, o.warranty_until, o.safety_checked_at,
               o.estimated_price::float8 AS estimated_price, o.extra_amount::float8 AS extra_amount,
               o.final_price::float8 AS final_price, o.commission_amount::float8 AS commission_amount,
               ST_Y(o.location::geometry) AS lat, ST_X(o.location::geometry) AS lng,
@@ -93,9 +93,35 @@ export const getOrderDetail = async (id) => {
       `SELECT id, rating, comment, is_flagged, created_at FROM reviews WHERE order_id = $1`,
       [id],
     ),
+    // Ảnh trước / sau khi sửa do thợ chụp trên app thợ (bằng chứng khi có khiếu nại)
+    query(
+      `SELECT id, kind, url, created_at FROM order_photos WHERE order_id = $1 ORDER BY kind DESC, created_at`,
+      [id],
+    ),
+    // Lịch sử lời mời của bộ điều phối: mời ai, đợt mấy, điểm phù hợp, thợ trả lời thế nào
+    query(
+      `SELECT f.id, f.worker_id, u.full_name AS worker_name, f.mode, f.round, f.rank_position,
+              f.score::float8 AS score, f.distance_km::float8 AS distance_km, f.status, f.reason,
+              f.offered_at, f.expires_at, f.responded_at
+       FROM order_offers f JOIN users u ON u.id = f.worker_id
+       WHERE f.order_id = $1
+       ORDER BY f.offered_at, f.rank_position NULLS LAST`,
+      [id],
+    ),
+    // Vết di chuyển của thợ khi làm đơn này (app thợ gửi ~20 giây / điểm)
+    query(
+      `SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng, recorded_at
+       FROM worker_location_logs WHERE order_id = $1 ORDER BY recorded_at LIMIT 2000`,
+      [id],
+    ),
+    query(
+      `SELECT mode, rounds, offers_sent, last_candidates, next_attempt_at, last_attempt_at, deadline_at, created_at
+       FROM order_dispatches WHERE order_id = $1`,
+      [id],
+    ),
   ]);
 
-  if (!order.rows[0]) throw new AppError(404, 'Order not found');
+  if (!order.rows[0]) throw new AppError(404, 'Không tìm thấy đơn hàng');
 
   return {
     order: order.rows[0],
@@ -103,6 +129,10 @@ export const getOrderDetail = async (id) => {
     quotes: quotes.rows,
     payments: payments.rows,
     review: review.rows[0] ?? null,
+    photos: photos.rows,
+    offers: offers.rows,
+    trail: trail.rows,
+    dispatch: dispatch.rows[0] ?? null,
   };
 };
 
@@ -117,9 +147,9 @@ export const cancelOrder = async (id, adminId, reason) => {
       [id],
     );
     const order = rows[0];
-    if (!order) throw new AppError(404, 'Order not found');
+    if (!order) throw new AppError(404, 'Không tìm thấy đơn hàng');
     if (['completed', 'cancelled'].includes(order.status)) {
-      throw new AppError(400, `Cannot cancel a ${order.status} order`);
+      throw new AppError(400, order.status === 'completed' ? 'Đơn đã hoàn thành, không huỷ được' : 'Đơn đã bị huỷ trước đó');
     }
 
     await client.query(

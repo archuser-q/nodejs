@@ -14,9 +14,9 @@ export const loginAdmin = async(identifier, password)=>{
     const user = rows[0];
 
     const ok = user?.password_hash && (await bcrypt.compare(password, user.password_hash))
-    if (!ok) throw new AppError(401, 'Email or phone or password is incorrect');
-    if (user.role !== 'admin') throw new AppError(403, 'You do not have sufficient priviledge');
-    if (user.status !== 'active') throw new AppError(403, 'Your account is not active');
+    if (!ok) throw new AppError(401, 'Sai email/số điện thoại hoặc mật khẩu');
+    if (user.role !== 'admin') throw new AppError(403, 'Bạn không có quyền truy cập trang quản trị');
+    if (user.status !== 'active') throw new AppError(403, 'Tài khoản đang bị khoá');
 
     await query('update users set last_login_at = now() where id = $1', [user.id]);
 

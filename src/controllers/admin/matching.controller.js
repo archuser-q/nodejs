@@ -7,7 +7,7 @@ const isId = (v) => /^\d+$/.test(v);
 const number = (body, key, min, max) => {
   const value = Number(body[key]);
   if (body[key] === undefined || body[key] === null || Number.isNaN(value) || value < min || value > max) {
-    throw new AppError(400, `${key} must be between ${min} and ${max}`);
+    throw new AppError(400, `${key} phải nằm trong khoảng ${min}–${max}`);
   }
   return value;
 };
@@ -17,7 +17,7 @@ const parseWeights = (body = {}) => {
   for (const key of WEIGHTS) data[key] = number(body, key, 0, 1);
 
   const sum = WEIGHTS.reduce((s, key) => s + data[key], 0);
-  if (Math.abs(sum - 1) > 0.001) throw new AppError(400, `Weights must add up to 1 (current: ${sum.toFixed(3)})`);
+  if (Math.abs(sum - 1) > 0.001) throw new AppError(400, `Tổng trọng số phải bằng 1 (hiện tại: ${sum.toFixed(3)})`);
 
   data.max_radius_km = number(body, 'max_radius_km', 1, 50);
   return data;
@@ -25,13 +25,13 @@ const parseWeights = (body = {}) => {
 
 const parseConfig = (body = {}) => {
   const name = String(body.name ?? '').trim();
-  if (!name) throw new AppError(400, 'name is required');
+  if (!name) throw new AppError(400, 'Vui lòng nhập tên cấu hình');
 
   const data = { name };
   for (const key of WEIGHTS) data[key] = number(body, key, 0, 1);
 
   const sum = WEIGHTS.reduce((s, key) => s + data[key], 0);
-  if (Math.abs(sum - 1) > 0.001) throw new AppError(400, `Weights must add up to 1 (current: ${sum.toFixed(3)})`);
+  if (Math.abs(sum - 1) > 0.001) throw new AppError(400, `Tổng trọng số phải bằng 1 (hiện tại: ${sum.toFixed(3)})`);
 
   data.max_radius_km = number(body, 'max_radius_km', 1, 50);
   data.offer_timeout_seconds = Math.round(number(body, 'offer_timeout_seconds', 10, 300));
@@ -52,25 +52,25 @@ export const list = async (req, res) => {
 
 export const create = async (req, res) => {
   const config = await matchingService.createConfig(parseConfig(req.body), req.user.id);
-  res.status(201).json({ message: 'Config created', config });
+  res.status(201).json({ message: 'Đã tạo cấu hình', config });
 };
 
 export const update = async (req, res) => {
-  if (!isId(req.params.id)) throw new AppError(400, 'Invalid id');
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã không hợp lệ');
   await matchingService.updateConfig(req.params.id, parseConfig(req.body), req.user.id);
-  res.json({ message: 'Config updated' });
+  res.json({ message: 'Đã cập nhật cấu hình' });
 };
 
 export const activate = async (req, res) => {
-  if (!isId(req.params.id)) throw new AppError(400, 'Invalid id');
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã không hợp lệ');
   await matchingService.activateConfig(req.params.id, req.user.id);
-  res.json({ message: 'Config activated' });
+  res.json({ message: 'Đã áp dụng cấu hình' });
 };
 
 export const remove = async (req, res) => {
-  if (!isId(req.params.id)) throw new AppError(400, 'Invalid id');
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã không hợp lệ');
   await matchingService.deleteConfig(req.params.id);
-  res.json({ message: 'Config deleted' });
+  res.json({ message: 'Đã xoá cấu hình' });
 };
 
 export const simulate = async (req, res) => {

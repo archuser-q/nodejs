@@ -1,7 +1,8 @@
 import { query } from '../config/db.js';
 import { AppError } from '../utils/AppError.js';
 
-export const listComplaints = async ({ search, status, type, page, pageSize }) => {
+// source: 'customer' = khách gửi (reporter_id NULL), 'worker' = thợ báo cáo sự cố từ app thợ (reporter_id = id thợ)
+export const listComplaints = async ({ search, status, type, source, page, pageSize }) => {
   const params = [];
   const conditions = ['TRUE'];
 
@@ -13,6 +14,8 @@ export const listComplaints = async ({ search, status, type, page, pageSize }) =
     params.push(type);
     conditions.push(`cp.type = $${params.length}`);
   }
+  if (source === 'worker') conditions.push('cp.reporter_id IS NOT NULL');
+  if (source === 'customer') conditions.push('cp.reporter_id IS NULL');
   if (search) {
     params.push(`%${search}%`);
     const p = `$${params.length}`;
@@ -23,6 +26,7 @@ export const listComplaints = async ({ search, status, type, page, pageSize }) =
 
   const { rows } = await query(
     `SELECT cp.id, cp.type, cp.title, cp.status, cp.created_at, cp.resolved_at,
+            cp.reporter_id, CASE WHEN cp.reporter_id IS NULL THEN 'customer' ELSE 'worker' END AS source,
             o.id AS order_id, o.code AS order_code,
             c.full_name AS customer_name, w.full_name AS worker_name,
             COUNT(*) OVER()::int AS total
@@ -44,6 +48,8 @@ export const getComplaintDetail = async (id) => {
   const { rows } = await query(
     `SELECT cp.id, cp.type, cp.title, cp.content, cp.image_urls, cp.status, cp.resolution,
             cp.created_at, cp.resolved_at,
+            cp.reporter_id, CASE WHEN cp.reporter_id IS NULL THEN 'customer' ELSE 'worker' END AS source,
+            rp.full_name AS reporter_name,
             o.id AS order_id, o.code AS order_code, o.status AS order_status,
             o.final_price::float8 AS order_price, o.completed_at AS order_completed_at,
             o.warranty_until, s.name AS service_name,
@@ -56,10 +62,11 @@ export const getComplaintDetail = async (id) => {
      JOIN users c ON c.id = cp.customer_id
      LEFT JOIN users w ON w.id = o.worker_id
      LEFT JOIN users h ON h.id = cp.handled_by
+     LEFT JOIN users rp ON rp.id = cp.reporter_id
      WHERE cp.id = $1`,
     [id],
   );
-  if (!rows[0]) throw new AppError(404, 'Complaint not found');
+  if (!rows[0]) throw new AppError(404, 'Không tìm thấy khiếu nại');
   return rows[0];
 };
 
@@ -72,14 +79,14 @@ export const handleComplaint = async (id, adminId, status, resolution) => {
          handled_by = $4,
          resolved_at = CASE WHEN $5 THEN NOW() ELSE NULL END
      WHERE id = $1 AND status IN ('open', 'processing')
-     RETURNING id, status`,
+     RETURNING id, status, title, resolution, order_id, customer_id, reporter_id`,
     [id, status, resolution, adminId, closing],
   );
 
   if (!rows[0]) {
     const { rows: exists } = await query('SELECT status FROM complaints WHERE id = $1', [id]);
-    if (!exists[0]) throw new AppError(404, 'Complaint not found');
-    throw new AppError(400, 'This complaint is already closed');
+    if (!exists[0]) throw new AppError(404, 'Không tìm thấy khiếu nại');
+    throw new AppError(400, 'Khiếu nại này đã đóng');
   }
   return rows[0];
 };

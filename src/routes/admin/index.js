@@ -13,6 +13,8 @@ import complaintRoutes from './complaint.routes.js';
 import reportRoutes from './report.routes.js';
 import matchingRoutes from './matching.routes.js';
 import { dispatchRoutes, withdrawalRoutes } from './dispatch.routes.js'; // [B] bộ điều phối + rút tiền của thợ
+import monitorRoutes from './monitor.routes.js';
+import notificationRoutes from './notification.routes.js';
 
 const router = Router();
 
@@ -28,5 +30,7 @@ router.use('/admin/reports', requireAdmin, reportRoutes);
 router.use('/admin/matching-configs', requireAdmin, matchingRoutes);
 router.use('/admin/dispatch', requireAdmin, dispatchRoutes);
 router.use('/admin/withdrawals', requireAdmin, withdrawalRoutes);
+router.use('/admin/monitor', requireAdmin, monitorRoutes);
+router.use('/admin/notifications', requireAdmin, notificationRoutes);
 
 export default router;  

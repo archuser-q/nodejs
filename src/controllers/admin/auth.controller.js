@@ -5,12 +5,12 @@ import { AppError } from '../../utils/AppError.js';
 export const login = async(req, res) => {
     const identifier = req.body?.identifier?.trim();
     const password = req.body?.password;
-    if (!identifier || !password) throw new AppError(400, 'Identifier and password are required');
+    if (!identifier || !password) throw new AppError(400, 'Vui lòng nhập email/số điện thoại và mật khẩu');
     
     const {token, user} = await authService.loginAdmin(identifier, password);
     res.cookie(AUTH_COOKIE, token, authCookieOptions);
     res.json({
-        message: 'Login successful',
+        message: 'Đăng nhập thành công',
         user
     });
 }
@@ -25,6 +25,6 @@ export const logout = async(req, res) => {
     const { maxAge, ...options } = authCookieOptions
     res.clearCookie(AUTH_COOKIE, options);
     res.json({
-        message: 'Log out'
+        message: 'Đã đăng xuất'
     })
 }

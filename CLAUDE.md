@@ -95,12 +95,13 @@ Lý do chi tiết từng mục: `docs/TICH_HOP_THANH_VIEN_B.md` mục 4.
 
 ### Web quản trị
 
-- [ ] Áp `docs/dashboard-che-do-ghep.patch` (trong thư mục `dashboard`: `git apply <đường dẫn>/dashboard-che-do-ghep.patch`) để chọn chế độ ghép và k. Hoặc tự làm, vì backend đã nhận `mode`, `max_offers`.
-- [ ] **Duyệt hồ sơ thợ theo từng giấy tờ** (hiện từ chối là từ chối cả bộ). Hiển thị `submitted_at`, xếp hồ sơ chờ duyệt theo thời gian gửi. Từ chối giấy nào thì ghi lý do cho đúng giấy đó (`worker_documents.reject_reason`); app thợ đã hiện lý do theo từng giấy.
-- [ ] Trang **duyệt rút tiền**: `GET /api/admin/withdrawals?status=`, `POST /api/admin/withdrawals/:id/approve`, `POST .../reject { note }` (từ chối thì tiền hoàn về ví).
-- [ ] Trang khiếu nại: phân biệt báo cáo do thợ gửi (`reporter_id` khác null, tiêu đề bắt đầu "[Thợ báo cáo]") với khiếu nại của khách.
-- [ ] Tuỳ chọn: ô trạng thái bộ điều phối (`GET /api/admin/dispatch/status`).
-- [ ] Xoá file CV cá nhân (PDF) trong `dashboard/src/components/matching`. Đổi placeholder "VD: Điện lạnh" thành "VD: Sửa chữa điện".
+- [x] Áp `docs/dashboard-che-do-ghep.patch` (trong thư mục `dashboard`: `git apply <đường dẫn>/dashboard-che-do-ghep.patch`) để chọn chế độ ghép và k. Hoặc tự làm, vì backend đã nhận `mode`, `max_offers`.
+- [x] **Duyệt hồ sơ thợ theo từng giấy tờ** (hiện từ chối là từ chối cả bộ). Hiển thị `submitted_at`, xếp hồ sơ chờ duyệt theo thời gian gửi. Từ chối giấy nào thì ghi lý do cho đúng giấy đó (`worker_documents.reject_reason`); app thợ đã hiện lý do theo từng giấy.
+- [x] Trang **duyệt rút tiền**: `GET /api/admin/withdrawals?status=`, `POST /api/admin/withdrawals/:id/approve`, `POST .../reject { note }` (từ chối thì tiền hoàn về ví).
+- [x] Trang khiếu nại: phân biệt báo cáo do thợ gửi (`reporter_id` khác null, tiêu đề bắt đầu "[Thợ báo cáo]") với khiếu nại của khách.
+- [x] Tuỳ chọn: ô trạng thái bộ điều phối (`GET /api/admin/dispatch/status`).
+- [x] Xoá file CV cá nhân (PDF) trong `dashboard/src/components/matching`. Đổi placeholder "VD: Điện lạnh" thành "VD: Sửa chữa điện".
+- [x] Thêm: bản đồ giám sát đơn/thợ, chuông việc cần xử lý, chi tiết đơn có ảnh trước/sau + lịch sử lời mời + vết di chuyển (API: `docs/ADMIN_API.md`).
 
 ### Điểm tin cậy (thành viên A)
 

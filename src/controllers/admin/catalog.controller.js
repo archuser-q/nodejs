@@ -5,27 +5,27 @@ const isId = (v) => /^\d+$/.test(String(v));
 
 const text = (body, key, { required = false } = {}) => {
   if (body[key] === undefined) {
-    if (required) throw new AppError(400, `${key} is required`);
+    if (required) throw new AppError(400, `Thiếu trường ${key}`);
     return undefined;
   }
   const value = String(body[key] ?? '').trim();
-  if (required && !value) throw new AppError(400, `${key} is required`);
+  if (required && !value) throw new AppError(400, `Thiếu trường ${key}`);
   return value || null;
 };
 
 const int = (body, key, { required = false, min = 0 } = {}) => {
   if (body[key] === undefined) {
-    if (required) throw new AppError(400, `${key} is required`);
+    if (required) throw new AppError(400, `Thiếu trường ${key}`);
     return undefined;
   }
   const value = Number(body[key]);
-  if (!Number.isInteger(value) || value < min) throw new AppError(400, `${key} must be an integer >= ${min}`);
+  if (!Number.isInteger(value) || value < min) throw new AppError(400, `${key} phải là số nguyên ≥ ${min}`);
   return value;
 };
 
 const bool = (body, key) => {
   if (body[key] === undefined) return undefined;
-  if (typeof body[key] !== 'boolean') throw new AppError(400, `${key} must be true or false`);
+  if (typeof body[key] !== 'boolean') throw new AppError(400, `${key} phải là true hoặc false`);
   return body[key];
 };
 
@@ -53,28 +53,28 @@ export const listCategories = async (req, res) => {
 
 export const createCategory = async (req, res) => {
   const category = await catalogService.createCategory(parseCategory(req.body));
-  res.status(201).json({ message: 'Category created', category });
+  res.status(201).json({ message: 'Đã tạo danh mục', category });
 };
 
 export const updateCategory = async (req, res) => {
-  if (!isId(req.params.id)) throw new AppError(400, 'Invalid id');
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã không hợp lệ');
   const category = await catalogService.updateCategory(req.params.id, parseCategory(req.body, true));
-  res.json({ message: 'Category updated', category });
+  res.json({ message: 'Đã cập nhật danh mục', category });
 };
 
 export const listServices = async (req, res) => {
   const { categoryId, search } = req.query;
-  if (categoryId && !isId(categoryId)) throw new AppError(400, 'Invalid categoryId');
+  if (categoryId && !isId(categoryId)) throw new AppError(400, 'Mã danh mục không hợp lệ');
   res.json({ items: await catalogService.listServices({ categoryId, search: search?.trim() }) });
 };
 
 export const createService = async (req, res) => {
   const service = await catalogService.createService(parseService(req.body));
-  res.status(201).json({ message: 'Service created', service });
+  res.status(201).json({ message: 'Đã tạo dịch vụ', service });
 };
 
 export const updateService = async (req, res) => {
-  if (!isId(req.params.id)) throw new AppError(400, 'Invalid id');
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã không hợp lệ');
   const service = await catalogService.updateService(req.params.id, parseService(req.body, true));
-  res.json({ message: 'Service updated', service });
+  res.json({ message: 'Đã cập nhật dịch vụ', service });
 };

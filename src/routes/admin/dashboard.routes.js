@@ -4,5 +4,6 @@ import * as dashboardController from '../../controllers/admin/dashboard.controll
 const router = Router();
 
 router.get('/overview', dashboardController.overview);
+router.get('/pending', dashboardController.pending);
 
 export default router;
