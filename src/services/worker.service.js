@@ -123,5 +123,5 @@ export const reviewWorker = async (id, adminId, status, note) => {
     throw err;
   } finally {
     client.release();
-  }
+  } 
 };
