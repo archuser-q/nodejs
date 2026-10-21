@@ -197,3 +197,81 @@ describe('Web quản trị: khiếu nại, bản đồ, thông báo, chi tiết 
     status(await api('PATCH', '/api/admin/notifications/read-all', { cookie: ADMIN }), 200);
   });
 });
+
+describe('Web quản trị: đơn & đánh giá của thợ, tài chính', () => {
+  beforeEach(async () => {
+    C = await h.reset({ mode: 'instant', maxOffers: 1 });
+    ADMIN = await h.adminCookie();
+  });
+
+  test('hồ sơ thợ: đơn đang làm / đã xong, toàn bộ đánh giá có phân trang + phân bố sao', async () => {
+    const w = await h.readyWorker(ADMIN, { name: 'Thợ Hồ Sơ', at: off(0.3, 0) });
+    const cus = await h.customer();
+    const oid = await h.order(cus, C.SVC);
+    await h.tick();
+    status(await api('POST', `/api/worker/offers/${(await h.offer(w)).id}/accept`, { token: w.token }), 200);
+
+    // 3 đơn đã hoàn thành có đánh giá 5, 4, 5 sao (dữ liệu dựng thẳng trong CSDL)
+    for (const [i, stars] of [5, 4, 5].entries()) {
+      const [o] = await sql(
+        `INSERT INTO orders (code, customer_id, worker_id, service_id, address_text, location, status, matching_mode,
+                             estimated_price, final_price, completed_at)
+         VALUES ($1, $2, $3, $4, 'x', ST_SetSRID(ST_MakePoint(105.85, 21.03), 4326)::geography, 'completed', 'instant',
+                 200000, 200000, NOW() - make_interval(hours => $5)) RETURNING id`,
+        [`TNTEST${i}`, cus.id, w.id, C.SVC, i + 1],
+      );
+      await sql('INSERT INTO reviews (order_id, customer_id, worker_id, rating, comment) VALUES ($1, $2, $3, $4, $5)', [o.id, cus.id, w.id, stars, `Đánh giá ${i}`]);
+    }
+
+    const active = (await api('GET', `/api/admin/workers/${w.id}/orders?group=active`, { cookie: ADMIN })).body;
+    assert.equal(active.items.length, 1);
+    assert.equal(Number(active.items[0].id), oid);
+    assert.deepEqual(active.counts, { active: 1, completed: 3, cancelled: 0 });
+    const done = (await api('GET', `/api/admin/workers/${w.id}/orders?group=completed&pageSize=2`, { cookie: ADMIN })).body;
+    assert.equal(done.total, 3);
+    assert.equal(done.items.length, 2);
+    assert.equal(done.items[0].code, 'TNTEST0'); // hoàn thành gần nhất lên đầu
+    assert.equal(done.items[0].rating, 5);
+    status(await api('GET', `/api/admin/workers/${w.id}/orders?group=abc`, { cookie: ADMIN }), 400);
+
+    const rv = (await api('GET', `/api/admin/workers/${w.id}/reviews?pageSize=2`, { cookie: ADMIN })).body;
+    assert.equal(rv.total, 3);
+    assert.equal(rv.items.length, 2);
+    assert.deepEqual(rv.summary.distribution, { 1: 0, 2: 0, 3: 0, 4: 1, 5: 2 });
+    assert.equal(rv.summary.average, 4.67);
+    const five = (await api('GET', `/api/admin/workers/${w.id}/reviews?rating=5`, { cookie: ADMIN })).body;
+    assert.equal(five.total, 2);
+    status(await api('GET', `/api/admin/workers/${w.id}/reviews?rating=9`, { cookie: ADMIN }), 400);
+  });
+
+  test('tài chính: giao dịch ví thợ lọc theo thợ / loại, thanh toán của khách lọc theo phương thức', async () => {
+    const w1 = await h.readyWorker(ADMIN, { name: 'Thợ Ví Một' });
+    const w2 = await h.readyWorker(ADMIN, { name: 'Thợ Ví Hai' });
+    await sql(
+      `INSERT INTO worker_transactions (worker_id, type, amount, balance_after, note) VALUES
+         ($1, 'topup', 200000, 200000, 'Nạp'), ($1, 'withdraw', -100000, 100000, 'Rút'), ($2, 'topup', 50000, 50000, 'Nạp')`,
+      [w1.id, w2.id],
+    );
+    const all = (await api('GET', '/api/admin/finance/transactions', { cookie: ADMIN })).body;
+    assert.equal(all.total, 3);
+    const mine = (await api('GET', `/api/admin/finance/transactions?workerId=${w1.id}`, { cookie: ADMIN })).body;
+    assert.equal(mine.total, 2);
+    const tops = (await api('GET', '/api/admin/finance/transactions?type=topup', { cookie: ADMIN })).body;
+    assert.equal(tops.total, 2);
+    assert.equal(tops.summary.find((s) => s.type === 'topup').amount, 250000);
+    assert.equal((await api('GET', '/api/admin/finance/transactions?search=Ví Hai', { cookie: ADMIN })).body.total, 1);
+    status(await api('GET', '/api/admin/finance/transactions?type=abc', { cookie: ADMIN }), 400);
+    status(await api('GET', '/api/admin/finance/transactions?from=2026-13-01', { cookie: ADMIN }), 400);
+
+    const cus = await h.customer();
+    const oid = await h.order(cus, C.SVC);
+    await sql("INSERT INTO payments (order_id, method, amount, status, paid_at) VALUES ($1, 'momo', 250000, 'success', NOW()), ($1, 'cash', 250000, 'failed', NULL)", [oid]);
+    const pay = (await api('GET', '/api/admin/finance/payments?method=momo', { cookie: ADMIN })).body;
+    assert.equal(pay.total, 1);
+    assert.equal(pay.items[0].customer_name, 'Nguyễn Thị Hoa');
+    const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10); // ngày theo giờ VN
+    assert.equal((await api('GET', `/api/admin/finance/payments?from=${today}&to=${today}`, { cookie: ADMIN })).body.total, 2);
+    assert.equal((await api('GET', '/api/admin/finance/payments?status=success', { cookie: ADMIN })).body.summary[0].amount, 250000);
+    status(await api('GET', '/api/admin/finance/payments'), 401);
+  });
+});

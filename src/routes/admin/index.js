@@ -15,6 +15,7 @@ import matchingRoutes from './matching.routes.js';
 import { dispatchRoutes, withdrawalRoutes } from './dispatch.routes.js'; // [B] bộ điều phối + rút tiền của thợ
 import monitorRoutes from './monitor.routes.js';
 import notificationRoutes from './notification.routes.js';
+import financeRoutes from './finance.routes.js';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use('/admin/dispatch', requireAdmin, dispatchRoutes);
 router.use('/admin/withdrawals', requireAdmin, withdrawalRoutes);
 router.use('/admin/monitor', requireAdmin, monitorRoutes);
 router.use('/admin/notifications', requireAdmin, notificationRoutes);
+router.use('/admin/finance', requireAdmin, financeRoutes);
 
 export default router;  

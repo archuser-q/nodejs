@@ -63,3 +63,26 @@ export const reviewDocument = async (req, res) => {
 
   res.json({ message: status === 'approved' ? `Đã duyệt ${result.label}` : `Đã từ chối ${result.label}`, document: result.document });
 };
+
+const paging = (q, def = 10) => ({
+  page: Math.max(1, Number(q.page) || 1),
+  pageSize: Math.min(100, Math.max(1, Number(q.pageSize) || def)),
+});
+
+/** GET /admin/workers/:id/orders?group=active|completed|cancelled */
+export const orders = async (req, res) => {
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã thợ không hợp lệ');
+  const group = req.query.group ?? 'completed';
+  if (!['active', 'completed', 'cancelled'].includes(group)) throw new AppError(400, 'Nhóm đơn không hợp lệ');
+  const p = paging(req.query);
+  res.json({ ...(await workerService.listWorkerOrders(req.params.id, { group, ...p })), ...p });
+};
+
+/** GET /admin/workers/:id/reviews?rating=1..5 */
+export const reviews = async (req, res) => {
+  if (!isId(req.params.id)) throw new AppError(400, 'Mã thợ không hợp lệ');
+  const rating = req.query.rating ? Number(req.query.rating) : null;
+  if (rating !== null && ![1, 2, 3, 4, 5].includes(rating)) throw new AppError(400, 'Số sao phải từ 1 đến 5');
+  const p = paging(req.query);
+  res.json({ ...(await workerService.listWorkerReviews(req.params.id, { rating, ...p })), ...p });
+};

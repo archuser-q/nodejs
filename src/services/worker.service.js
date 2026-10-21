@@ -227,3 +227,77 @@ export const reviewDocument = async (workerId, docId, adminId, status, reason) =
     client.release();
   }
 };
+
+// Nhóm đơn của 1 thợ trong hồ sơ: đang làm / đã hoàn thành / đã huỷ
+const ORDER_GROUPS = {
+  active: { statuses: ['accepted', 'on_the_way', 'arrived', 'in_progress'], order: 'o.accepted_at DESC NULLS LAST' },
+  completed: { statuses: ['completed'], order: 'o.completed_at DESC NULLS LAST' },
+  cancelled: { statuses: ['cancelled'], order: 'o.cancelled_at DESC NULLS LAST' },
+};
+
+export const listWorkerOrders = async (id, { group, page, pageSize }) => {
+  const g = ORDER_GROUPS[group];
+  const [list, counts] = await Promise.all([
+    query(
+      `SELECT o.id, o.code, o.status, o.address_text, o.scheduled_at, o.created_at, o.accepted_at,
+              o.completed_at, o.cancelled_at, o.cancel_reason,
+              COALESCE(o.final_price, o.estimated_price)::float8 AS price,
+              o.commission_amount::float8 AS commission_amount,
+              s.name AS service_name, c.full_name AS customer_name,
+              r.rating, r.comment AS review_comment,
+              COUNT(*) OVER()::int AS total
+       FROM orders o
+       JOIN services s ON s.id = o.service_id
+       JOIN users c ON c.id = o.customer_id
+       LEFT JOIN reviews r ON r.order_id = o.id
+       WHERE o.worker_id = $1 AND o.status = ANY($2::order_status[])
+       ORDER BY ${g.order}, o.id DESC
+       LIMIT $3 OFFSET $4`,
+      [id, g.statuses, pageSize, (page - 1) * pageSize],
+    ),
+    query(
+      `SELECT COUNT(*) FILTER (WHERE status = ANY($2::order_status[]))::int AS active,
+              COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+              COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+       FROM orders WHERE worker_id = $1`,
+      [id, ORDER_GROUPS.active.statuses],
+    ),
+  ]);
+  return {
+    items: list.rows.map(({ total, ...o }) => o),
+    total: list.rows[0]?.total ?? 0,
+    counts: counts.rows[0],
+  };
+};
+
+/** Toàn bộ đánh giá của thợ (phân trang, lọc theo số sao) + phân bố số sao */
+export const listWorkerReviews = async (id, { rating, page, pageSize }) => {
+  const [list, dist] = await Promise.all([
+    query(
+      `SELECT r.id, r.rating, r.comment, r.image_urls, r.is_flagged, r.flag_reason, r.created_at,
+              o.id AS order_id, o.code AS order_code, s.name AS service_name, u.full_name AS customer_name,
+              COUNT(*) OVER()::int AS total
+       FROM reviews r
+       JOIN users u ON u.id = r.customer_id
+       JOIN orders o ON o.id = r.order_id
+       JOIN services s ON s.id = o.service_id
+       WHERE r.worker_id = $1 AND ($2::int IS NULL OR r.rating = $2)
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT $3 OFFSET $4`,
+      [id, rating ?? null, pageSize, (page - 1) * pageSize],
+    ),
+    query(
+      `SELECT rating, COUNT(*)::int AS count FROM reviews WHERE worker_id = $1 GROUP BY rating`,
+      [id],
+    ),
+  ]);
+  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const d of dist.rows) distribution[d.rating] = d.count;
+  const count = Object.values(distribution).reduce((s, n) => s + n, 0);
+  const sum = Object.entries(distribution).reduce((s, [k, n]) => s + Number(k) * n, 0);
+  return {
+    items: list.rows.map(({ total, ...r }) => r),
+    total: list.rows[0]?.total ?? 0,
+    summary: { count, average: count ? Math.round((sum / count) * 100) / 100 : null, distribution },
+  };
+};
