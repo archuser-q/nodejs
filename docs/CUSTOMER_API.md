@@ -1,49 +1,74 @@
 # API App Khách hàng (`/api/customer`)
 
-Dùng chung database với web quản trị. Đăng nhập trả về `token` (JWT, mặc định 30 ngày);
-các API còn lại gửi header `Authorization: Bearer <token>`. Lỗi luôn có dạng `{ "message": "..." }` (tiếng Việt).
-Danh sách phân trang trả `{ items, total, page, pageSize }` (query `?page=1&pageSize=10`), giống API dashboard.
+Dùng chung backend, CSDL và quy ước với app thợ (`docs/WORKER_API.md`) và web quản trị:
+
+- Đăng nhập trả `{ token, user }` (JWT, mặc định 30 ngày, role `customer`); các API còn lại gửi `Authorization: Bearer <token>`.
+- Trả JSON trực tiếp. Lỗi luôn là `{ "message": "..." }` bằng tiếng Việt, app hiển thị thẳng.
+- Danh sách phân trang trả `{ items, total, page, pageSize }`, query `?page=1&pageSize=10`.
+- Giờ trả ISO 8601 (UTC); app tự đổi sang giờ Việt Nam. Tiền là số nguyên VND. Toạ độ của app khách dùng `lat` / `lng`.
+- Phạm vi chỉ gồm **dịch vụ của thợ điện** (4 nhóm: Sửa chữa điện · Lắp đặt thiết bị điện · Đồ điện gia dụng · Đi dây & tủ điện).
 
 ## Chạy thử
 
 ```bash
 npm install
 npm run migrate up
+npm run seed:demo          # danh mục điện, thợ demo, khách khach@thonhanh.vn / 12345678 (SĐT 0912000001)
 npm run dev
 ```
 
-Muốn test khi chưa có app thợ: dùng thư mục `dev-tools/` (xem `dev-tools/README.md`):
-
-```bash
-npm run seed:dev          # dịch vụ, cấu hình ghép cặp, 40 thợ quanh Hà Nội, khách 0912345678 / 123456
-npm run simulate -- <mã đơn> accept|on_the_way|move|arrived|in_progress|quote|msg|completed|confirm-cash|auto
-```
+Không cần app thợ trong tay: `npm run bots` (hoặc `docker compose --profile bots up -d`) để thợ ảo tự nhận và làm đơn,
+hoặc mở app thợ bản web. Đóng vai khách bằng script: `npm run demo:customer -- order` (xem đầu file `scripts/demo-customer.js`).
 
 ## Endpoint
 
 | Nhóm | Method & path | Ghi chú |
 |---|---|---|
-| Auth | `POST /auth/register` `{ full_name, phone, password, email? }` | trả `{ token, user }` |
-| | `POST /auth/login` `{ identifier, password }` | identifier = SĐT hoặc email |
-| | `GET /auth/me` | `{ user }` |
-| Hồ sơ | `PATCH /profile` `{ full_name?, email? }` | `{ user }` |
+| Đăng nhập | `POST /auth/register` `{ full_name, email, phone?, password }` | mật khẩu ≥ 8 ký tự; cần ít nhất email hoặc SĐT (app gửi cả hai); trả `{ token, user }` |
+| | `POST /auth/login` `{ identifier, password }` | identifier = email hoặc SĐT; tài khoản thợ / admin → 403 |
+| | `GET /auth/providers` | client id Google / Facebook để app bật nút (null = ẩn) |
+| | `POST /auth/google` `{ id_token \| access_token }` · `POST /auth/facebook` `{ access_token }` | backend tự xác minh lại với Google/Facebook (dùng chung `services/worker/social.js`); email đã xác minh trùng thì liên kết vào tài khoản cũ; trả thêm `is_new` |
+| | `POST /auth/forgot-password` `{ email }` · `POST /auth/reset-password` `{ email, code, new_password }` | mã 6 số qua email, 15 phút, sai 5 lần thì huỷ; chưa có SMTP và không phải production thì trả `debug_code` |
+| | `GET /auth/me` | `{ user, has_password }` (tài khoản Google/Facebook chưa có mật khẩu → `false`) |
+| | `POST /auth/change-password` `{ old_password?, new_password }` | chưa có mật khẩu thì không cần mật khẩu cũ |
+| Hồ sơ | `PATCH /profile` `{ full_name?, email?, phone?, avatar_url? }` | email/SĐT không trùng người khác; không bỏ được cả email lẫn SĐT |
+| Thiết bị | `POST /device-tokens` `{ token, platform }` · `DELETE /device-tokens/:token` | Expo push (bật bằng `PUSH_ENABLED=true`) |
 | Địa chỉ | `GET /addresses` · `POST /addresses` `{ label?, address_text, lat, lng, is_default? }` | địa chỉ đầu tiên tự làm mặc định |
 | | `PATCH /addresses/:id` · `DELETE /addresses/:id` | |
 | Danh mục | `GET /catalog/categories` · `GET /catalog/services?category_id=&search=` | không cần đăng nhập |
-| Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, matching_mode? }` | tạo đơn `matching` + gửi đề xuất cho 5 thợ (Weighted Scoring) |
-| | `GET /orders?group=active\|completed\|cancelled` · `GET /orders/:id` | chi tiết kèm history, extra_quotes, payments, review, warranty, can_* |
-| | `POST /orders/:id/cancel` `{ reason }` | chỉ khi `pending/matching/accepted` |
+| Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, image_urls? }` | xem "Quy tắc đặt đơn" bên dưới; trả chi tiết đơn |
+| | `GET /orders?group=active\|completed\|cancelled` · `GET /orders/:id` | chi tiết: `history`, `extra_quotes`, `payments`, `review`, `warranty`, `photos`, `searching`, `safety_checked_at`, thợ (kèm `level`, `has_certificate`), các cờ `can_*`. Chỉ đọc, không ghi CSDL |
+| | `POST /orders/:id/cancel` `{ reason }` | chỉ khi `pending / matching / accepted` (huỷ theo mẫu: đóng lời mời `reason='closed'`, báo `offer:closed`, `refreshAvailability`) |
 | | `GET /orders/:id/tracking` | vị trí thợ (khi đơn đang chạy) |
-| | `POST /orders/:id/quotes/:quoteId/approve` · `.../reject` | báo giá phát sinh |
-| Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content }` · `POST /orders/:id/messages/read` | |
-| Thanh toán | `POST /orders/:id/payments` `{ method: cash\|momo\|vnpay }` | chỉ khi đơn `completed` |
-| | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production |
+| | `POST /orders/:id/quotes/:quoteId/approve` · `.../reject` | báo giá phát sinh đang `pending` (thợ rút thì thành `cancelled`) |
+| Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content?, image_url? }` · `POST /orders/:id/messages/read` | gửi chữ, ảnh hoặc cả hai; ảnh tải qua `POST /api/uploads` |
+| Thanh toán | `POST /orders/:id/payments` `{ method: cash\|momo\|vnpay }` | chỉ khi đơn `completed`; tiền mặt chờ thợ bấm "Đã thu tiền" |
+| | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production. Mọi thanh toán thành công đi qua `settlePayment()` → `recordPaidOrder()` (ví thợ, hoa hồng) |
 | | `GET /payments` | lịch sử giao dịch |
-| Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật rating_avg/rating_count của thợ |
-| Khiếu nại | `POST /orders/:id/complaints` `{ title, content }` · `GET /complaints` | |
-| Bảo hành | `POST /orders/:id/warranty-claim` `{ content }` | còn hạn `warranty_until`, lưu vào `complaints` type `warranty` |
-| Thợ | `GET /workers/:id` | hồ sơ công khai + 5 đánh giá gần nhất |
+| Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật `rating_avg`, `rating_count`; `trust_score` do thành viên A tính |
+| Khiếu nại | `POST /orders/:id/complaints` `{ title, content }` · `GET /complaints` | không hiện báo cáo do thợ gửi (`reporter_id` khác null) |
+| Bảo hành | `POST /orders/:id/warranty-claim` `{ content }` | còn hạn `warranty_until`; lưu vào `complaints` type `warranty` (xem đề xuất luồng bên dưới) |
+| Thợ | `GET /workers/:id` | hồ sơ công khai: hạng thợ, có chứng chỉ nghề điện, kỹ năng, 5 đánh giá gần nhất |
 | Thông báo | `GET /notifications?unread_only=` · `GET /notifications/unread-count` · `PATCH /notifications/:id/read` · `PATCH /notifications/read-all` | |
+
+Dùng chung với app thợ: `POST /api/uploads` (multipart, trường `file`, cần đăng nhập, ảnh ≤ 8 MB) trả `{ url }`; ảnh phục vụ ở `/media/...`.
+
+### Quy tắc đặt đơn
+
+- **Cần số điện thoại** (để thợ gọi khi đến). Tài khoản Google/Facebook chưa có SĐT → 400, app nhắc thêm SĐT trước.
+- **Khách không chọn chế độ ghép.** Trường `matching_mode` gửi lên bị bỏ qua; bộ điều phối chọn theo cấu hình admin đang bật
+  (`instant` / `batch` / `auto`) và ghi lại `orders.matching_mode` là chế độ thực tế đã dùng (`instant` hoặc `batch`).
+- **Giờ hẹn** (`scheduled_at`) phải cách hiện tại **≥ 60 phút**, tối đa 30 ngày, trong khung giờ **7:00–21:00 giờ VN**
+  (đổi bằng biến `BOOKING_HOURS`, VD `6-22`; để trống `BOOKING_HOURS=` thì bỏ giới hạn). Đơn "làm ngay" đặt được mọi lúc.
+- **Ảnh tình trạng** `image_urls`: tối đa 6 URL ảnh đã tải lên. App thợ hiển thị trong lời mời và chi tiết đơn.
+- Sau khi lưu, đơn được đưa vào hàng đợi bằng `dispatchOffers(orderId)`; mọi việc còn lại (mời theo đợt, hết hạn, ghép theo lô,
+  huỷ đơn quá hạn chờ) do bộ điều phối chạy nền của thành viên B lo.
+- Thợ huỷ khi chưa tới nơi: đơn quay về `matching`, `worker = null` và được tìm thợ khác — app khách đưa người dùng về màn "Thợ phù hợp".
+
+### Trường `searching` (tiến độ tìm thợ)
+
+Có khi đơn đang `matching`: `{ mode, rounds, offers_sent, last_candidates, deadline_at, last_attempt_at }` (đọc từ `order_dispatches`).
+App hiển thị "Đợt mời N · đã mời M thợ · chờ tối đa tới HH:MM".
 
 ## Realtime (Socket.IO, cùng cổng với API)
 
@@ -53,48 +78,34 @@ const socket = io('http://<server>:3000', { auth: { token } });
 
 | Sự kiện | Payload | Khi nào |
 |---|---|---|
-| `order:updated` | `{ order_id, status }` | đổi trạng thái, báo giá, thanh toán, đánh giá |
-| `worker:location` | `{ order_id, lat, lng, updated_at }` | thợ gửi vị trí |
+| `order:updated` | `{ order_id, status }` | thợ nhận đơn / đổi trạng thái / huỷ, báo giá, ảnh, thanh toán |
+| `worker:location` | `{ order_id, lat, lng, updated_at }` | thợ đang làm đơn gửi vị trí (app thợ gửi định kỳ) |
 | `message:new` | Message | có tin nhắn trong đơn |
-| `notification:new` | Notification | có thông báo mới |
+| `notification:new` | Notification | có thông báo mới (`type`: `order`, `quote`, `chat`, `payment`, `review`, `warranty`) |
 
-## Phạm vi phần App Khách hàng
+## Cấu trúc phần App Khách hàng
 
 ```
-src/routes/customer/index.js             router /api/customer
-src/controllers/customer/*.controller.js validate input
+src/routes/customer/index.js              router /api/customer
+src/controllers/customer/*.controller.js  kiểm tra dữ liệu vào (dùng utils/validate.js)
 src/services/customer/
-  account.service.js     đăng ký/đăng nhập, hồ sơ, địa chỉ, xem danh mục
-  order.service.js       tạo/xem/huỷ đơn, tracking, duyệt báo giá
-  interaction.service.js chat, thanh toán (chỉ ghi nhận), đánh giá, khiếu nại, bảo hành, xem hồ sơ thợ
-  notify.service.js      thông báo + đẩy socket
-  dispatch.service.js    ĐIỂM NỐI với module ghép cặp (cài đặt tạm, xem bên dưới)
-  common.js              transaction, phân trang, hằng trạng thái
-src/middlewares/requireCustomer.js       xác thực Bearer token
-src/realtime/socket.js                   Socket.IO
+  auth.service.js         đăng ký/đăng nhập email-SĐT, Google, Facebook, quên / đổi mật khẩu
+  account.service.js      hồ sơ, địa chỉ, xem danh mục
+  order.service.js        tạo / xem / huỷ đơn, tracking, duyệt báo giá
+  interaction.service.js  chat, thanh toán, đánh giá, khiếu nại, bảo hành, hồ sơ thợ
+  notify.service.js       thông báo + đẩy socket + push
+  dispatch.service.js     lớp chuyển tiếp sang bộ điều phối của B
+  common.js               transaction, phân trang, hằng trạng thái
+src/middlewares/requireCustomer.js        xác thực Bearer token
+test/customer-app.test.js                 kiểm thử tích hợp phần app khách (chạy trong npm test)
 ```
 
-**Không làm (để thành viên khác):**
-- Thuật toán ghép cặp / gửi đề xuất cho thợ: `dispatch.service.js` chỉ là bản tạm gọi `findCandidates` + `rankCandidates`
-  có sẵn. Người làm matching thay nội dung file, giữ tên 2 hàm `dispatchOffers(orderId)` và `refreshOffers(orderId)`.
-- Ví thợ, hoa hồng (`worker_transactions`, `wallet_balance`, `commission_amount`): thanh toán phía khách chỉ đổi
-  `payments.status = success` và điền `orders.final_price`.
-- Trust score: đánh giá chỉ cập nhật `rating_avg`, `rating_count` của thợ.
-- Thao tác của thợ (nhận đơn, đổi trạng thái, gửi vị trí, báo giá, xác nhận tiền mặt): chỉ có bản giả lập trong `dev-tools/`.
+## Đề xuất luồng bảo hành (cần nhóm chốt, rồi B làm phần app thợ)
 
-## Thay đổi ở file chung của nhóm (cần báo trước khi merge)
+Hiện tại khách gửi yêu cầu bảo hành → tạo `complaints` loại `warranty` → admin xử lý ở trang Khiếu nại. Đề xuất bước tiếp theo:
 
-| File | Thay đổi |
-|---|---|
-| `src/app.js` | nối `/api/customer`; nạp `/api/dev` nếu có thư mục `dev-tools` (ngoài production); `CLIENT_ORIGIN` nhận nhiều địa chỉ cách dấu phẩy |
-| `src/server.js` | `http.createServer` + Socket.IO, nghe `0.0.0.0` để điện thoại cùng Wi-Fi gọi được |
-| `src/config/db.js` | thêm `sql()` / `q()` đọc BIGINT/NUMERIC thành number; `query()` cũ giữ nguyên |
-| `src/config/env.js` | thêm `MOBILE_JWT_EXPIRES_IN` (tuỳ chọn, mặc định 30d) |
-| `src/utils/jwt.js` | `signToken(payload, expiresIn?)` — tham số thứ 2 tuỳ chọn, gọi cũ không đổi |
-| `src/middlewares/ErrorHandler.js` | body JSON sai trả 400 thay vì 500 |
-| `package.json` | thêm `socket.io`; lệnh `seed:dev`, `simulate` (trỏ vào `dev-tools/`) |
-
-## dev-tools/ (không thuộc phần app khách)
-
-Công cụ test khi chưa có app thợ: giả lập thợ (`/api/dev`, `npm run simulate`) và dữ liệu mẫu (`npm run seed:dev`).
-Có thể không đẩy lên nhánh chung, hoặc xoá khi app thợ xong — server vẫn chạy bình thường.
+1. Admin duyệt yêu cầu (`processing`) và bấm "Tạo đơn bảo hành".
+2. Backend tạo đơn mới **0đ** cùng dịch vụ, địa chỉ, ảnh của đơn gốc; ghi liên kết đơn gốc (cần migration mới, VD cột `orders.warranty_of`).
+3. Mời **thợ cũ** trước (1 lời mời, hết giờ / thợ đã nghỉ thì đưa vào hàng đợi bình thường).
+4. Đơn bảo hành không tính hoa hồng, không thanh toán; hoàn thành thì đóng khiếu nại (`resolved`).
+5. App khách: đơn bảo hành hiện nhãn "Bảo hành" và liên kết về đơn gốc.

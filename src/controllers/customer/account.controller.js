@@ -1,59 +1,101 @@
 import * as accountService from '../../services/customer/account.service.js';
+import * as auth from '../../services/customer/auth.service.js';
+import * as push from '../../services/push.service.js';
 import { AppError } from '../../utils/AppError.js';
+import * as v from '../../utils/validate.js';
 import { assertId } from '../../services/customer/common.js';
 
-const PHONE_RE = /^0\d{9}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const body = (req) => req.body ?? {};
 
-const cleanEmail = (v) => {
-  if (v === undefined) return undefined;
-  const email = String(v ?? '').trim().toLowerCase();
-  if (!email) return null;
-  if (!EMAIL_RE.test(email)) throw new AppError(400, 'Email không hợp lệ');
-  return email;
-};
-
-const cleanCoord = (v, min, max, label) => {
-  const n = Number(v);
-  if (v === null || v === undefined || v === '' || !Number.isFinite(n) || n < min || n > max) {
+const cleanCoord = (val, min, max, label) => {
+  const n = Number(val);
+  if (val === null || val === undefined || val === '' || !Number.isFinite(n) || n < min || n > max) {
     throw new AppError(400, `${label} không hợp lệ`);
   }
   return n;
 };
 
-// ── Auth ────────────────────────────────────────────────────────────────────
+// ── Đăng nhập / tài khoản ───────────────────────────────────────────────────
 
+/** POST /auth/register { full_name, email?, phone?, password } — cần ít nhất email hoặc SĐT */
 export const register = async (req, res) => {
-  const fullName = req.body?.full_name?.trim();
-  const phone = req.body?.phone?.trim();
-  const password = req.body?.password ?? '';
-  if (!fullName || fullName.length < 2) throw new AppError(400, 'Vui lòng nhập họ tên');
-  if (fullName.length > 100) throw new AppError(400, 'Họ tên quá dài');
-  if (!PHONE_RE.test(phone ?? '')) throw new AppError(400, 'Số điện thoại phải gồm 10 chữ số, bắt đầu bằng 0');
-  if (password.length < 6) throw new AppError(400, 'Mật khẩu phải có ít nhất 6 ký tự');
-
-  const result = await accountService.register({ fullName, phone, email: cleanEmail(req.body?.email) ?? null, password });
+  const b = body(req);
+  const email = v.email(b.email, { required: false });
+  const phone = v.phone(b.phone, { required: false });
+  if (!email && !phone) throw new AppError(400, 'Vui lòng nhập email');
+  const result = await auth.register({
+    fullName: v.text(b.full_name, 'họ tên', { min: 2, max: 100 }),
+    email,
+    phone,
+    password: v.password(b.password),
+  });
   res.status(201).json(result);
 };
 
+/** POST /auth/login { identifier, password } — identifier là email hoặc SĐT */
 export const login = async (req, res) => {
-  const identifier = (req.body?.identifier ?? req.body?.phone)?.trim();
-  const password = req.body?.password;
-  if (!identifier || !password) throw new AppError(400, 'Vui lòng nhập số điện thoại và mật khẩu');
-  res.json(await accountService.login(identifier, password));
+  const b = body(req);
+  const identifier = String(b.identifier ?? b.email ?? b.phone ?? '').trim();
+  if (!identifier || !b.password) throw new AppError(400, 'Vui lòng nhập email/số điện thoại và mật khẩu');
+  res.json(await auth.login(identifier, String(b.password)));
 };
 
+export const providers = (req, res) => res.json(auth.providers());
+
+export const google = async (req, res) => {
+  const b = body(req);
+  res.json(await auth.socialLogin('google', { idToken: b.id_token || null, accessToken: b.access_token || null }));
+};
+
+export const facebook = async (req, res) => {
+  res.json(await auth.socialLogin('facebook', { accessToken: body(req).access_token || null }));
+};
+
+export const forgotPassword = async (req, res) => {
+  res.json(await auth.forgotPassword(v.email(body(req).email)));
+};
+
+export const resetPassword = async (req, res) => {
+  const b = body(req);
+  if (!/^\d{6}$/.test(String(b.code ?? ''))) throw new AppError(400, 'Mã xác nhận gồm 6 chữ số');
+  await auth.resetPassword(v.email(b.email), String(b.code), v.password(b.new_password, 'mật khẩu mới'));
+  res.json({ message: 'Đặt lại mật khẩu thành công, hãy đăng nhập bằng mật khẩu mới' });
+};
+
+export const changePassword = async (req, res) => {
+  const b = body(req);
+  await auth.changePassword(req.user.id, b.old_password ?? null, v.password(b.new_password, 'mật khẩu mới'));
+  res.json({ message: 'Đổi mật khẩu thành công' });
+};
+
+/** GET /auth/me — kèm has_password để app biết có cần hỏi mật khẩu cũ khi đổi mật khẩu */
 export const me = async (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: req.user, has_password: await auth.hasPassword(req.user.id) });
 };
 
+/** PATCH /profile { full_name?, email?, phone?, avatar_url? } */
 export const updateProfile = async (req, res) => {
-  const fullName = req.body?.full_name?.trim();
-  if (fullName !== undefined && (fullName.length < 2 || fullName.length > 100)) {
-    throw new AppError(400, 'Họ tên phải từ 2 đến 100 ký tự');
-  }
-  const user = await accountService.updateProfile(req.user.id, { fullName, email: cleanEmail(req.body?.email) });
+  const b = body(req);
+  const data = {};
+  if (b.full_name !== undefined) data.fullName = v.text(b.full_name, 'họ tên', { min: 2, max: 100 });
+  if (b.email !== undefined) data.email = v.email(b.email, { required: false });
+  if (b.phone !== undefined) data.phone = v.phone(b.phone, { required: false });
+  if (b.avatar_url !== undefined) data.avatarUrl = b.avatar_url ? v.url(b.avatar_url, 'ảnh đại diện') : null;
+  const user = await accountService.updateProfile(req.user.id, data);
   res.json({ user });
+};
+
+// ── Thiết bị nhận thông báo đẩy (Expo Push) ─────────────────────────────────
+
+export const registerDevice = async (req, res) => {
+  const b = body(req);
+  await push.registerDevice(req.user.id, v.text(b.token, 'token', { max: 255 }), v.oneOf(b.platform, ['android', 'ios', 'web'], 'nền tảng'));
+  res.status(201).json({ message: 'Đã đăng ký thiết bị' });
+};
+
+export const removeDevice = async (req, res) => {
+  await push.removeDevice(req.user.id, String(req.params.token ?? ''));
+  res.json({ message: 'Đã gỡ thiết bị' });
 };
 
 // ── Địa chỉ ─────────────────────────────────────────────────────────────────

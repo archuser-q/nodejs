@@ -6,6 +6,7 @@ import { emitToUser } from '../../realtime/socket.js';
 import { CHAT_STATUSES, getOwnedOrder, withTransaction } from './common.js';
 import { emitOrderUpdated, notify } from './notify.service.js';
 import { recordPaidOrder } from '../worker/finance.service.js'; // [B] ví thợ + hoa hồng khi đơn được thanh toán
+import { workerLevel } from '../worker/level.js'; // hạng thợ (Đồng/Bạc/Vàng/Kim cương) — chỉ để hiển thị
 
 const money = (n) => `${Number(n).toLocaleString('vi-VN')}đ`;
 
@@ -317,6 +318,8 @@ export const getWorkerPublic = async (workerId) => {
   const { rows } = await q(
     `SELECT u.id, u.full_name, u.avatar_url, w.bio, w.experience_years, w.rating_avg, w.rating_count,
             w.trust_score, w.total_jobs, w.verification_status = 'approved' AS verified,
+            EXISTS (SELECT 1 FROM worker_documents d
+                    WHERE d.worker_id = w.user_id AND d.doc_type = 'certificate' AND d.status = 'approved') AS has_certificate,
             COALESCE(ARRAY(
               SELECT c.name FROM worker_skills ws JOIN service_categories c ON c.id = ws.category_id
               WHERE ws.worker_id = w.user_id ORDER BY c.sort_order, c.name
@@ -334,5 +337,6 @@ export const getWorkerPublic = async (workerId) => {
      ORDER BY r.created_at DESC LIMIT 5`,
     [workerId],
   );
-  return { ...rows[0], recent_reviews: reviews };
+  const w = rows[0];
+  return { ...w, level: workerLevel(w.total_jobs, w.rating_count ? w.rating_avg : null), recent_reviews: reviews };
 };

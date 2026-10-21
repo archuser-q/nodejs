@@ -10,12 +10,20 @@ const router = Router();
 // Không cần đăng nhập
 router.post('/auth/register', account.register);
 router.post('/auth/login', account.login);
+router.get('/auth/providers', account.providers);
+router.post('/auth/google', account.google);
+router.post('/auth/facebook', account.facebook);
+router.post('/auth/forgot-password', account.forgotPassword);
+router.post('/auth/reset-password', account.resetPassword);
 router.get('/catalog/categories', account.listCategories);
 router.get('/catalog/services', account.listServices);
 
 router.use(requireCustomer);
 
 router.get('/auth/me', account.me);
+router.post('/auth/change-password', account.changePassword);
+router.post('/device-tokens', account.registerDevice);
+router.delete('/device-tokens/:token', account.removeDevice);
 router.patch('/profile', account.updateProfile);
 
 router.get('/addresses', account.listAddresses);
