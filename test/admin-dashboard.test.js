@@ -275,3 +275,36 @@ describe('Web quản trị: đơn & đánh giá của thợ, tài chính', () =>
     status(await api('GET', '/api/admin/finance/payments'), 401);
   });
 });
+
+describe('Web quản trị: sự cố trong hồ sơ thợ', () => {
+  beforeEach(async () => {
+    C = await h.reset({ mode: 'instant', maxOffers: 1 });
+    ADMIN = await h.adminCookie();
+  });
+
+  test('lọc khiếu nại theo thợ: báo cáo thợ gửi + khiếu nại khách về đơn của thợ, không lẫn thợ khác', async () => {
+    const w1 = await h.readyWorker(ADMIN, { name: 'Thợ Sự Cố', at: off(0.3, 0) });
+    const w2 = await h.readyWorker(ADMIN, { name: 'Thợ Khác', at: off(5, 5) });
+    const cus = await h.customer();
+    const oid = await h.order(cus, C.SVC);
+    await h.tick();
+    status(await api('POST', `/api/worker/offers/${(await h.offer(w1)).id}/accept`, { token: w1.token }), 200);
+    status(await api('POST', `/api/worker/orders/${oid}/report`, { token: w1.token, body: { reason: 'Khách không nghe máy' } }), 201);
+    await sql("INSERT INTO complaints (order_id, customer_id, type, title, content) VALUES ($1, $2, 'complaint', 'Thợ đến muộn', 'Muộn 1 tiếng')", [oid, cus.id]);
+
+    const all = (await api('GET', `/api/admin/complaints?workerId=${w1.id}`, { cookie: ADMIN })).body;
+    assert.equal(all.total, 2);
+    const reports = (await api('GET', `/api/admin/complaints?workerId=${w1.id}&source=worker`, { cookie: ADMIN })).body;
+    assert.equal(reports.total, 1);
+    assert.equal(reports.items[0].title, '[Thợ báo cáo] Khách không nghe máy');
+    const fromCustomers = (await api('GET', `/api/admin/complaints?workerId=${w1.id}&source=customer`, { cookie: ADMIN })).body;
+    assert.equal(fromCustomers.items[0].title, 'Thợ đến muộn');
+    assert.equal((await api('GET', `/api/admin/complaints?workerId=${w2.id}`, { cookie: ADMIN })).body.total, 0);
+    status(await api('GET', '/api/admin/complaints?workerId=abc', { cookie: ADMIN }), 400);
+
+    const stats = (await api('GET', `/api/admin/workers/${w1.id}`, { cookie: ADMIN })).body.stats;
+    assert.equal(stats.reports, 1);
+    assert.equal(stats.customer_complaints, 1);
+    assert.equal(stats.open_issues, 2);
+  });
+});

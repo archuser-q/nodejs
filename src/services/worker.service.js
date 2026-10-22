@@ -93,7 +93,14 @@ export const getWorkerDetail = async (id) => {
     query(
       `SELECT COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_orders,
               COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_orders,
-              COALESCE(SUM(final_price) FILTER (WHERE status = 'completed'), 0)::float8 AS total_revenue
+              COALESCE(SUM(final_price) FILTER (WHERE status = 'completed'), 0)::float8 AS total_revenue,
+              -- Sự cố: báo cáo do thợ gửi + khiếu nại của khách về đơn của thợ (tab "Sự cố" trong hồ sơ)
+              (SELECT COUNT(*) FROM complaints c WHERE c.reporter_id = $1)::int AS reports,
+              (SELECT COUNT(*) FROM complaints c JOIN orders o ON o.id = c.order_id
+                 WHERE o.worker_id = $1 AND c.reporter_id IS NULL)::int AS customer_complaints,
+              (SELECT COUNT(*) FROM complaints c LEFT JOIN orders o ON o.id = c.order_id
+                 WHERE (c.reporter_id = $1 OR (o.worker_id = $1 AND c.reporter_id IS NULL))
+                   AND c.status IN ('open', 'processing'))::int AS open_issues
        FROM orders WHERE worker_id = $1`,
       [id],
     ),

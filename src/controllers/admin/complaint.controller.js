@@ -11,7 +11,8 @@ const SOURCES = ['customer', 'worker'];
 const isId = (v) => /^\d+$/.test(v);
 
 export const list = async (req, res) => {
-  const { search, status, type, source } = req.query;
+  const { search, status, type, source, workerId } = req.query;
+  if (workerId && !isId(workerId)) throw new AppError(400, 'Mã thợ không hợp lệ');
   if (status && !STATUSES.includes(status)) throw new AppError(400, 'Trạng thái không hợp lệ');
   if (type && !TYPES.includes(type)) throw new AppError(400, 'Loại khiếu nại không hợp lệ');
   if (source && !SOURCES.includes(source)) throw new AppError(400, 'Nguồn khiếu nại không hợp lệ');
@@ -19,7 +20,7 @@ export const list = async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 10));
 
-  const result = await complaintService.listComplaints({ search: search?.trim(), status, type, source, page, pageSize });
+  const result = await complaintService.listComplaints({ search: search?.trim(), status, type, source, workerId, page, pageSize });
   res.json({ ...result, page, pageSize });
 };
 

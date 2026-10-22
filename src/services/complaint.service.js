@@ -2,7 +2,8 @@ import { query } from '../config/db.js';
 import { AppError } from '../utils/AppError.js';
 
 // source: 'customer' = khách gửi (reporter_id NULL), 'worker' = thợ báo cáo sự cố từ app thợ (reporter_id = id thợ)
-export const listComplaints = async ({ search, status, type, source, page, pageSize }) => {
+// workerId: chỉ lấy sự cố liên quan 1 thợ = báo cáo thợ đó gửi + khiếu nại của khách về đơn thợ đó làm
+export const listComplaints = async ({ search, status, type, source, workerId, page, pageSize }) => {
   const params = [];
   const conditions = ['TRUE'];
 
@@ -15,6 +16,11 @@ export const listComplaints = async ({ search, status, type, source, page, pageS
     conditions.push(`cp.type = $${params.length}`);
   }
   if (source === 'worker') conditions.push('cp.reporter_id IS NOT NULL');
+  if (workerId) {
+    params.push(workerId);
+    const p = `$${params.length}`;
+    conditions.push(`(cp.reporter_id = ${p} OR (o.worker_id = ${p} AND cp.reporter_id IS NULL))`);
+  }
   if (source === 'customer') conditions.push('cp.reporter_id IS NULL');
   if (search) {
     params.push(`%${search}%`);
