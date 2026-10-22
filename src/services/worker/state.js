@@ -74,6 +74,4 @@ export const conflictingWorkers = async (db, workerIds, when, excludeOrderId = n
   return new Set(rows.map((r) => Number(r.worker_id)));
 };
 
-export const isWalletRestricted = (balance) => Number(balance) < -settings.walletDebtLimit;
-
 export const commissionOf = (gross) => Math.round(Number(gross) * settings.commissionRate);

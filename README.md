@@ -38,7 +38,9 @@ docker compose down -v                                      # dừng và XOÁ d�
 
 ## Tài khoản demo
 
-Mật khẩu chung: `12345678`.
+Mật khẩu chung: `12345678` (chỉ dữ liệu demo; tài khoản thợ đăng ký mới cần mật khẩu ≥ 8 ký tự, có cả chữ và số).
+
+Thanh toán: **chỉ MoMo / VNPay** (sandbox), không có tiền mặt. Khách trả xong thì 85% vào ví thợ, thợ rút về ngân hàng.
 
 | Tài khoản | Vai trò |
 |---|---|
@@ -70,9 +72,9 @@ npm run dev                   # http://localhost:3000
 
 | Lệnh | Việc |
 |---|---|
-| `npm run bots -- --count 8 --accept 0.85` | thợ ảo: đăng nhập, nhận / từ chối lời mời, di chuyển, chụp ảnh, hoàn thành, xác nhận tiền mặt (qua đúng API app thợ) |
-| `npm run demo:customer -- order \| quote \| pay \| review \| cancel \| show \| rush` | khách giả lập qua đúng API app khách (xem đầu file `scripts/demo-customer.js`) |
-| `npm test` | 27 nhóm kiểm thử tích hợp trên PostGIS thật (CSDL `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`) |
+| `npm run bots -- --count 8 --accept 0.85` | thợ ảo: đăng nhập, nhận / từ chối lời mời, di chuyển, chụp ảnh, hoàn thành (qua đúng API app thợ) |
+| `npm run demo:customer -- order \| quote \| pay \| review \| cancel \| show \| rush` | khách giả lập qua đúng API app khách (xem đầu file `scripts/demo-customer.js`). `pay` trả qua MoMo / VNPay sandbox; `rush` tự trả các đơn còn nợ trước khi đặt |
+| `npm test` | 27 bài kiểm thử tích hợp trên PostGIS thật (CSDL `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`) |
 | `npm run test:algo` | kiểm chứng thuật toán: Hungarian so với vét cạn, Greedy, Union-Find (không cần CSDL) |
 | `npm run benchmark -- --out ket-qua` | thực nghiệm so sánh các chế độ ghép (khoảng 15 giây). Kết quả đã chạy nằm trong `docs/thuc-nghiem/` |
 
@@ -104,8 +106,9 @@ Trong file dùng chung của nhóm, mọi chỗ thành viên B sửa đều có 
 | Hiện tượng | Cách xử lý |
 |---|---|
 | `port is already allocated` | cổng 3000 / 5433 đang bận: tắt backend cũ, hoặc đổi `API_PORT=3001` / `DB_PORT=5434` khi chạy compose |
-| Thợ bật nhận đơn nhưng không nhận được lời mời | app phải gửi vị trí: vị trí cũ hơn 10 phút thì không được ghép (`LOCATION_MAX_AGE_MINUTES`). Ngoài ra kiểm tra thợ đã chọn đúng nhóm dịch vụ, ví không âm quá 500.000đ, và đơn nằm trong bán kính nhận việc |
+| Thợ bật nhận đơn nhưng không nhận được lời mời | app phải gửi vị trí: vị trí cũ hơn 10 phút thì không được ghép (`LOCATION_MAX_AGE_MINUTES`). Ngoài ra kiểm tra thợ đã được duyệt hồ sơ, đã chọn đúng nhóm dịch vụ, và đơn nằm trong bán kính nhận việc |
 | Đơn đặt ngay tự huỷ | không ai nhận trong 15 phút (`DISPATCH_MAX_WAIT_MINUTES`) |
+| Khách đặt đơn bị báo "chưa thanh toán đơn..." | nền tảng không nhận tiền mặt: khách phải trả đơn đã xong (MoMo / VNPay) rồi mới đặt đơn mới. Demo: `npm run demo:customer -- pay <mã đơn>` |
 | Ảnh không hiện trên điện thoại | đặt `PUBLIC_BASE_URL=http://<IP LAN>:3000` rồi `docker compose up -d` |
 | Nút Google / Facebook trên app mờ | chưa đăng ký mã ứng dụng: làm theo `docs/HUONG_DAN_GOOGLE_FACEBOOK.md` |
 | Quên mật khẩu không thấy email | chưa cấu hình `SMTP_*`: ngoài production, mã 6 số hiện ngay trên app và trong log API |

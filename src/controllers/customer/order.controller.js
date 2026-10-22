@@ -6,7 +6,8 @@ import { assertId, pagination } from '../../services/customer/common.js';
 
 const GROUPS = ['active', 'completed', 'cancelled'];
 const MODES = ['instant', 'batch'];
-const METHODS = ['cash', 'momo', 'vnpay'];
+// [B] Nền tảng không nhận tiền mặt: mọi đơn trả qua cổng thanh toán để thu hoa hồng và trả thợ minh bạch
+const METHODS = ['momo', 'vnpay'];
 
 const text = (v, { label, max, required = true }) => {
   const s = typeof v === 'string' ? v.trim() : '';
@@ -89,6 +90,7 @@ export const markMessagesRead = async (req, res) => {
 
 export const createPayment = async (req, res) => {
   const method = req.body?.method;
+  if (method === 'cash') throw new AppError(400, 'Thợ Nhanh không nhận tiền mặt, vui lòng thanh toán qua MoMo hoặc VNPay'); // [B]
   if (!METHODS.includes(method)) throw new AppError(400, 'Phương thức thanh toán không hợp lệ');
   res.status(201).json(await interaction.createPayment(req.user.id, assertId(req.params.id), method));
 };

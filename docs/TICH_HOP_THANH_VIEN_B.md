@@ -16,7 +16,10 @@ Bản tóm tắt dạng danh sách việc + các quy tắc khi sửa code: `CLAU
 
   Không có Nước, Điện lạnh, Khoá - cửa, Sơn - chống thấm. Code không gắn cứng tên danh mục; phạm vi do dữ liệu danh mục quyết định.
 - **Khách không chọn chế độ ghép.** Hệ thống tự quyết theo cấu hình admin đang bật, mặc định là `auto` (xem `docs/MATCHING.md`).
-- App thợ v2.0.0 chỉ chạy với backend Node này: cổng 3000, đường dẫn `/api/worker`.
+- App thợ v2.x chỉ chạy với backend Node này: cổng 3000, đường dẫn `/api/worker`.
+- **Không nhận tiền mặt.** Mọi đơn khách trả qua MoMo / VNPay (sandbox); trả xong thì 85% vào ví thợ, thợ rút về ngân hàng. Không có nạp ví, không có ví âm. Khách còn đơn chưa trả thì chưa đặt được đơn mới.
+- **Số năm kinh nghiệm của thợ là 1 con số chung** (`workers.experience_years`), áp cho mọi nhóm dịch vụ thợ nhận làm. Cột `worker_skills.years` vẫn giữ (hàm điểm ghép cặp và trang Mô phỏng của admin đọc cột này) nhưng luôn bằng `experience_years`.
+- **Thợ chưa được duyệt vẫn vào được app**, chỉ không bật nhận đơn được (app báo nộp giấy tờ / chờ duyệt). Admin bỏ duyệt thì thợ bị tắt nhận đơn ngay.
 
 ## 2. Phần B thêm mới (không đụng code của bạn khác)
 
@@ -33,7 +36,8 @@ Bản tóm tắt dạng danh sách việc + các quy tắc khi sửa code: `CLAU
 | Docker | `Dockerfile`, `docker-compose.yml`, `.dockerignore` |
 
 **Migration thêm:**
-- Giá trị enum: `offer_status.cancelled`, `quote_status.cancelled`, `wallet_txn_type.topup`.
+- Giá trị enum: `offer_status.cancelled`, `quote_status.cancelled`, `wallet_txn_type.topup` (enum chỉ thêm được không xoá được trong PostgreSQL; từ bản bỏ nạp ví thì không còn dùng).
+- `1792300000000_kinh-nghiem-chung.sql`: đồng bộ `worker_skills.years` = `workers.experience_years` cho dữ liệu cũ.
 - Cột: `workers.submitted_at`, `orders.safety_checked_at`, `order_offers.round/reason`, `matching_configs.mode/max_offers`, `worker_transactions.withdrawal_id`, `complaints.reporter_id`.
 - Bảng: `worker_bank_accounts`, `password_reset_codes`, `order_photos`, `order_dispatches`, `worker_withdrawals`, `worker_location_logs`.
 
@@ -49,13 +53,14 @@ Mọi chỗ sửa trong các file dưới đây đều có đánh dấu `[B]`. K
 | `src/app.js` | gắn `/api/worker`, `/api/uploads`, `/media`, `/api/health`; `CORS_ORIGIN_REGEX` cho bản web của app trên IP LAN |
 | `src/server.js` | bật bộ điều phối chạy nền; tắt gọn khi nhận SIGTERM |
 | `src/services/customer/dispatch.service.js` | thành lớp chuyển tiếp: `dispatchOffers` / `refreshOffers` gọi bộ điều phối của B (bản cũ gửi offer trực tiếp, không có hết hạn hay mời lại) |
-| `src/services/customer/interaction.service.js` | `settlePayment` gọi `recordPaidOrder` (ví thợ, hoa hồng 15 %, chống cộng trùng); chat nhận thêm `image_url`; khách không thấy báo cáo do thợ gửi |
+| `src/services/customer/interaction.service.js` | `settlePayment` gọi `recordPaidOrder` (ví thợ, hoa hồng 15 %, chống cộng trùng); chat nhận thêm `image_url`; khách không thấy báo cáo do thợ gửi; `createPayment` bỏ nhánh tiền mặt |
+| `src/controllers/customer/order.controller.js` | phương thức thanh toán chỉ còn `momo`, `vnpay`; gửi `cash` → 400 kèm câu giải thích |
 | `src/services/customer/notify.service.js` | gửi thêm thông báo đẩy (Expo, tắt mặc định) |
-| `src/services/customer/order.service.js` | khi khách huỷ: đóng lời mời với `reason='closed'`, báo `offer:closed` cho app thợ, tính lại cờ bận thay vì đặt thẳng `FALSE` |
+| `src/services/customer/order.service.js` | khi khách huỷ: đóng lời mời với `reason='closed'`, báo `offer:closed` cho app thợ, tính lại cờ bận thay vì đặt thẳng `FALSE`; chặn đặt đơn mới khi còn đơn đã xong chưa thanh toán; `can_pay` không còn phụ thuộc tiền mặt |
 | `src/services/order.service.js` (admin huỷ đơn) | trước đây không báo cho ai: thợ đang trên đường không biết đơn đã huỷ. Nay báo cho khách và thợ, đóng lời mời, tính lại cờ bận |
 | `src/services/candidate.js` | thêm tuỳ chọn `includeBusy` (đơn hẹn giờ), `db` (chạy trong transaction); trả thêm bán kính nhận việc và thời điểm cập nhật vị trí; thợ mới dùng điểm tin cậy trung tính 0,5 |
 | `src/services/matching.service.js`, `src/controllers/admin/matching.controller.js` | form cấu hình nhận thêm `mode`, `max_offers` (không gửi thì giữ nguyên, nên web quản trị cũ vẫn chạy) |
-| `src/controllers/admin/worker.controller.js` | duyệt / từ chối hồ sơ xong thì báo cho thợ |
+| `src/controllers/admin/worker.controller.js` | duyệt / từ chối hồ sơ xong thì báo cho thợ; từ chối / bỏ duyệt thì tắt nhận đơn của thợ và thu hồi lời mời đang chờ (trước đây thợ vẫn hiện "Đang nhận đơn") |
 | `src/routes/admin/index.js` | gắn `/admin/dispatch`, `/admin/withdrawals` |
 | `package.json`, `.env.example`, `.gitignore` | thư viện `multer`, `nodemailer`; script demo / test; biến môi trường mới |
 
@@ -69,10 +74,13 @@ Mọi chỗ sửa trong các file dưới đây đều có đánh dấu `[B]`. K
 4. **Ảnh tình trạng khi đặt đơn.** Cột `orders.image_urls` đã có nhưng app khách chưa gửi. Thợ điện rất cần ảnh để biết trước phải mang gì. Cách làm: tải ảnh qua `POST /api/uploads` rồi gửi `image_urls` khi tạo đơn. App thợ đã hiển thị sẵn.
 5. **Tài khoản khách còn thiếu** đăng nhập Google / Facebook, quên mật khẩu, đổi mật khẩu, đăng ký thiết bị nhận thông báo đẩy. Phía thợ đã có đủ (`services/worker/auth.service.js`, `social.js`, `/device-tokens`), có thể làm theo cùng cách.
 6. **App khách:** chat cần hiển thị ảnh (hiện chỉ ghi "[Hình ảnh]"); kiểu trạng thái báo giá cần thêm `'cancelled'` (thợ rút báo giá).
+   **Bỏ lựa chọn "Tiền mặt"** ở màn thanh toán (backend đã từ chối `cash`). Khi đặt đơn mà nhận lỗi "Bạn chưa thanh toán đơn ...", đưa khách tới đơn đó để trả.
+   **Mật khẩu khách** hiện chỉ cần ≥ 6 ký tự; nên dùng chung quy tắc của thợ (`password()` trong `src/utils/validate.js`: ≥ 8 ký tự, có chữ và số, chặn mật khẩu quá phổ biến).
 7. **Bảo hành mới dừng ở mức tạo khiếu nại.** Thực tế cần: admin duyệt → tạo đơn bảo hành 0đ giao lại cho đúng thợ cũ, hoặc tìm thợ khác nếu thợ cũ nghỉ. Phía B sẵn sàng làm phần app thợ khi chốt luồng.
 8. **`getOrderDetail` của khách đang ghi CSDL mỗi lần xem** (`refreshOffers`). Có thể bỏ, vì bộ điều phối đã tự nhận các đơn chưa vào hàng đợi.
 9. **Thông báo lỗi trong service admin đang là tiếng Anh** ("Worker not found", "Cannot cancel..."). Nên đổi sang tiếng Việt cho đồng bộ.
-10. **`dev-tools/` mở `/api/dev` không cần đăng nhập** khi `NODE_ENV` khác production: ai trong mạng LAN cũng nhận và hoàn thành đơn được. Đã có app thợ và thợ ảo thay thế nên nên xoá thư mục này khi gộp. Image Docker đã loại thư mục này.
+10. **`dev-tools/` còn lệnh `confirm-cash`** (giả lập thợ thu tiền mặt) không còn đúng nghiệp vụ; dùng `npm run demo:customer -- pay <mã đơn>` thay thế. `scripts/mockData/seed_orders.sql` cũng còn sinh thanh toán `cash`.
+11. **`dev-tools/` mở `/api/dev` không cần đăng nhập** khi `NODE_ENV` khác production: ai trong mạng LAN cũng nhận và hoàn thành đơn được. Đã có app thợ và thợ ảo thay thế nên nên xoá thư mục này khi gộp. Image Docker đã loại thư mục này.
 
 ### Web quản trị
 
@@ -81,6 +89,7 @@ Mọi chỗ sửa trong các file dưới đây đều có đánh dấu `[B]`. K
 3. **Trang duyệt rút tiền** của thợ (API có sẵn: `GET /api/admin/withdrawals`, `.../approve`, `.../reject`). Trang này cần khi tắt `WITHDRAWAL_AUTO_APPROVE`.
 4. **Khiếu nại:** phân biệt báo cáo do thợ gửi (`reporter_id` khác null, tiêu đề bắt đầu bằng "[Thợ báo cáo]") với khiếu nại của khách.
 5. **Tuỳ chọn:** ô trạng thái bộ điều phối (`GET /api/admin/dispatch/status`).
+   Nhãn "Tiền mặt" ở cột phương thức thanh toán chỉ còn gặp ở đơn cũ, giữ hay bỏ đều được.
 6. Xoá file CV cá nhân (PDF) đang nằm trong `dashboard/src/components/matching`.
 7. Placeholder "VD: Điện lạnh" ở form danh mục nên đổi thành "VD: Sửa chữa điện".
 
@@ -101,7 +110,6 @@ Tất cả đều có mặc định, xem `.env.example`. Hay dùng:
 - `LOCATION_MAX_AGE_MINUTES`
 - `DISPATCH_MAX_WAIT_MINUTES`
 - `COMMISSION_RATE`
-- `WALLET_DEBT_LIMIT`
 - `WITHDRAWAL_AUTO_APPROVE`
 - `TRUST_COLD_START`
 - `GOOGLE_*` / `FACEBOOK_*` / `SMTP_*`

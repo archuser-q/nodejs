@@ -19,11 +19,11 @@ const str = (key) => process.env[key]?.trim() || null;
 
 export const settings = {
   // ── Thu nhập, ví ─────────────────────────────────────────────────────────
+  // Mọi thanh toán đi qua cổng thanh toán (MoMo / VNPay), không nhận tiền mặt:
+  // nền tảng giữ tiền -> ví thợ cộng phần thực nhận -> thợ rút về ngân hàng.
   commissionRate: num('COMMISSION_RATE', 0.15), // hoa hồng nền tảng trên tổng tiền đơn
-  walletDebtLimit: num('WALLET_DEBT_LIMIT', 500_000), // ví âm quá mức này (hoa hồng đơn tiền mặt) thì tạm ngừng nhận đơn
   minWithdrawal: num('MIN_WITHDRAWAL', 50_000),
   withdrawalAutoApprove: bool('WITHDRAWAL_AUTO_APPROVE', true), // môi trường demo: lệnh rút được duyệt ngay
-  sandboxTopup: bool('SANDBOX_TOPUP', process.env.NODE_ENV !== 'production'),
 
   // ── Điều phối đơn ────────────────────────────────────────────────────────
   dispatcherEnabled: bool('DISPATCHER_ENABLED', true),

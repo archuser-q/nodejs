@@ -1,11 +1,11 @@
 /**
  * App thợ: ví, hoa hồng, thu nhập theo ngày/tuần/tháng, rút tiền, đánh giá & hiệu suất.  [Thành viên B]
  *
- * Mô hình ví (giống ví tín dụng / ví tiền mặt của các app gọi xe):
- *  - Khách trả online (MoMo/VNPay): nền tảng giữ tiền -> cộng vào ví thợ phần thực nhận (tổng - hoa hồng).
- *  - Khách trả tiền mặt: thợ đã cầm đủ tiền -> trừ phần hoa hồng khỏi ví thợ (ví có thể âm).
- *  - Ví âm quá WALLET_DEBT_LIMIT thì tạm ngừng nhận đơn cho tới khi nạp tiền.
- * Số dư = workers.wallet_balance; mỗi biến động là 1 dòng worker_transactions (kèm balance_after).
+ * Mô hình ví: nền tảng KHÔNG nhận tiền mặt, mọi đơn khách trả qua cổng thanh toán (MoMo / VNPay):
+ *  - nền tảng giữ tiền, cộng vào ví thợ phần thực nhận (tổng - hoa hồng COMMISSION_RATE);
+ *  - thợ rút tiền về tài khoản ngân hàng (demo: duyệt ngay; tắt WITHDRAWAL_AUTO_APPROVE thì admin duyệt).
+ * Số dư = workers.wallet_balance (không âm); mỗi biến động là 1 dòng worker_transactions (kèm balance_after).
+ * Dữ liệu cũ có đơn tiền mặt (type 'commission' trừ ví) vẫn hiển thị đúng trong lịch sử.
  */
 import crypto from 'crypto';
 import { pool, q, sql } from '../../config/db.js';
@@ -14,10 +14,10 @@ import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
 import { givenName, money } from '../../utils/vn.js';
 import { notify } from '../customer/notify.service.js';
-import { commissionOf, isWalletRestricted } from './state.js';
+import { commissionOf } from './state.js';
 import { DAY, vnDayOfMonth, vnDayStart, vnKey, vnMonthStart, vnWeekStart, vnWeekday } from './time.js';
 
-const PAYMENT_LABEL = { cash: 'tiền mặt', momo: 'MoMo', vnpay: 'VNPay' };
+const PAYMENT_LABEL = { momo: 'MoMo', vnpay: 'VNPay' };
 const WEEKDAY_SHORT = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const PERIOD_LABEL = { today: 'Hôm nay', week: 'Tuần này', month: 'Tháng này' };
 const PERFORMANCE_DAYS = 30;
@@ -69,15 +69,12 @@ export async function recordPaidOrder(db, orderId) {
     commission,
   ]);
   const rate = Math.round(settings.commissionRate * 100);
-  const cash = r.method === 'cash';
   return addWalletTxn(db, {
     workerId: r.worker_id,
     orderId,
-    type: cash ? 'commission' : 'earning',
-    amount: cash ? -commission : gross - commission,
-    note: cash
-      ? `Trừ hoa hồng ${rate}% đơn ${r.code} (khách trả tiền mặt)`
-      : `Thu nhập đơn ${r.code} (khách trả qua ${PAYMENT_LABEL[r.method] ?? r.method})`,
+    type: 'earning',
+    amount: gross - commission,
+    note: `Thu nhập đơn ${r.code} (khách trả qua ${PAYMENT_LABEL[r.method] ?? r.method}, đã trừ phí ${rate}%)`,
     at: r.paid_at,
   });
 }
@@ -179,8 +176,6 @@ export async function earningsSummary(workerId, period) {
       gross: sum(rows, 'gross'),
       commission: sum(rows, 'commission'),
       net,
-      cash_collected: sum(rows.filter((r) => r.method === 'cash'), 'gross'),
-      online_received: sum(rows.filter((r) => r.method !== 'cash'), 'net'),
       avg_net_per_order: rows.length ? Math.round(net / rows.length) : 0,
     },
     previous_net: sum(prevRows, 'net'),
@@ -238,13 +233,10 @@ export async function wallet(workerId) {
   return {
     balance,
     available_for_withdrawal: Math.max(0, balance),
-    debt_limit: settings.walletDebtLimit,
-    restricted: isWalletRestricted(balance),
     min_withdrawal: settings.minWithdrawal,
     pending_withdrawal: pending[0].s,
     bank_account: bank,
     recent,
-    topup_enabled: settings.sandboxTopup,
   };
 }
 
@@ -315,20 +307,6 @@ export async function listWithdrawals(workerId, { pageSize, offset }) {
     [workerId, pageSize, offset],
   );
   return { items: rows.map(({ total, ...w }) => w), total: rows[0]?.total ?? 0 };
-}
-
-/** Nạp tiền vào ví để bù hoa hồng đơn tiền mặt — giả lập cổng thanh toán (chỉ môi trường thử nghiệm) */
-export async function topup(workerId, amount, method) {
-  if (!settings.sandboxTopup) throw new AppError(404, 'API not found');
-  await transaction((db) =>
-    addWalletTxn(db, {
-      workerId,
-      type: 'topup',
-      amount,
-      note: `Nạp tiền vào ví qua ${method === 'vnpay' ? 'VNPay' : 'MoMo'} (sandbox)`,
-    }),
-  );
-  return wallet(workerId);
 }
 
 /** Admin duyệt / từ chối lệnh rút (khi tắt WITHDRAWAL_AUTO_APPROVE). Từ chối thì hoàn tiền vào ví. */

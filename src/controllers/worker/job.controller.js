@@ -62,8 +62,6 @@ export const cancelQuote = async (req, res) => {
   res.json(await jobs.cancelQuote(req.user.id, orderId(req), v.id(req.params.quoteId, 'Báo giá')));
 };
 
-export const confirmCash = async (req, res) => res.json(await jobs.confirmCash(req.user.id, orderId(req)));
-
 export const report = async (req, res) => {
   const b = body(req);
   const reason = v.text(b.reason, 'lý do', { min: 3, max: 150 });
