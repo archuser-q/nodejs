@@ -24,7 +24,7 @@ hoặc mở app thợ bản web. Đóng vai khách bằng script: `npm run demo:
 
 | Nhóm | Method & path | Ghi chú |
 |---|---|---|
-| Đăng nhập | `POST /auth/register` `{ full_name, email, phone?, password }` | mật khẩu ≥ 8 ký tự; cần ít nhất email hoặc SĐT (app gửi cả hai); trả `{ token, user }` |
+| Đăng nhập | `POST /auth/register` `{ full_name, email, phone?, password }` | mật khẩu dùng chung `password()` với app thợ: 8–72 ký tự, có cả chữ và số, chặn mật khẩu quá phổ biến (áp cho cả đổi / đặt lại mật khẩu); cần ít nhất email hoặc SĐT (app gửi cả hai); trả `{ token, user }` |
 | | `POST /auth/login` `{ identifier, password }` | identifier = email hoặc SĐT; tài khoản thợ / admin → 403 |
 | | `GET /auth/providers` | client id Google / Facebook để app bật nút (null = ẩn) |
 | | `POST /auth/google` `{ id_token \| access_token }` · `POST /auth/facebook` `{ access_token }` | backend tự xác minh lại với Google/Facebook (dùng chung `services/worker/social.js`); email đã xác minh trùng thì liên kết vào tài khoản cũ; trả thêm `is_new` |
@@ -42,7 +42,7 @@ hoặc mở app thợ bản web. Đóng vai khách bằng script: `npm run demo:
 | | `GET /orders/:id/tracking` | vị trí thợ (khi đơn đang chạy) |
 | | `POST /orders/:id/quotes/:quoteId/approve` · `.../reject` | báo giá phát sinh đang `pending` (thợ rút thì thành `cancelled`) |
 | Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content?, image_url? }` · `POST /orders/:id/messages/read` | gửi chữ, ảnh hoặc cả hai; ảnh tải qua `POST /api/uploads` |
-| Thanh toán | `POST /orders/:id/payments` `{ method: cash\|momo\|vnpay }` | chỉ khi đơn `completed`; tiền mặt chờ thợ bấm "Đã thu tiền" |
+| Thanh toán | `POST /orders/:id/payments` `{ method: momo\|vnpay }` | chỉ khi đơn `completed`. **Không nhận tiền mặt**: `cash` → 400 |
 | | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production. Mọi thanh toán thành công đi qua `settlePayment()` → `recordPaidOrder()` (ví thợ, hoa hồng) |
 | | `GET /payments` | lịch sử giao dịch |
 | Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật `rating_avg`, `rating_count`; `trust_score` do thành viên A tính |
@@ -60,6 +60,7 @@ Dùng chung với app thợ: `POST /api/uploads` (multipart, trường `file`, c
   (`instant` / `batch` / `auto`) và ghi lại `orders.matching_mode` là chế độ thực tế đã dùng (`instant` hoặc `batch`).
 - **Giờ hẹn** (`scheduled_at`) phải cách hiện tại **≥ 60 phút**, tối đa 30 ngày, trong khung giờ **7:00–21:00 giờ VN**
   (đổi bằng biến `BOOKING_HOURS`, VD `6-22`; để trống `BOOKING_HOURS=` thì bỏ giới hạn). Đơn "làm ngay" đặt được mọi lúc.
+- **Còn đơn đã hoàn thành mà chưa thanh toán** → 400 "Bạn chưa thanh toán đơn TN…". App khách mở đơn đó để khách trả trước.
 - **Ảnh tình trạng** `image_urls`: tối đa 6 URL ảnh đã tải lên. App thợ hiển thị trong lời mời và chi tiết đơn.
 - Sau khi lưu, đơn được đưa vào hàng đợi bằng `dispatchOffers(orderId)`; mọi việc còn lại (mời theo đợt, hết hạn, ghép theo lô,
   huỷ đơn quá hạn chờ) do bộ điều phối chạy nền của thành viên B lo.

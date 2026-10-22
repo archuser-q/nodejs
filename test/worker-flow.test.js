@@ -37,18 +37,24 @@ describe('Đăng nhập & tài khoản', () => {
 
   test('đăng ký bằng email, đăng nhập bằng email / SĐT, chặn sai vai trò', async () => {
     const w = await h.registerWorker('Thợ Một');
-    status(await api('POST', '/api/worker/auth/register', { body: { full_name: 'X', email: w.email, password: '12345678' } }), 400); // họ tên quá ngắn
-    status(await api('POST', '/api/worker/auth/register', { body: { full_name: 'Thợ Hai', email: w.email.toUpperCase(), password: '12345678' } }), 409);
-    status(await api('POST', '/api/worker/auth/register', { body: { full_name: 'Thợ Hai', email: 'a@b.vn', password: '123' } }), 400);
+    status(await api('POST', '/api/worker/auth/register', { body: { full_name: 'X', email: w.email, password: h.WORKER_PW } }), 400); // họ tên quá ngắn
+    status(await api('POST', '/api/worker/auth/register', { body: { full_name: 'Thợ Hai', email: w.email.toUpperCase(), password: h.WORKER_PW } }), 409);
+    // mật khẩu: ≥ 8 ký tự, có cả chữ và số, không quá phổ biến (không bắt chữ hoa / ký tự đặc biệt)
+    const reg = (password) => api('POST', '/api/worker/auth/register', { body: { full_name: 'Thợ Hai', email: `pw.${Math.random()}@b.vn`, password } });
+    assert.match((await reg('ab1')).body.message, /tối thiểu 8/);
+    assert.match((await reg('abcdefgh')).body.message, /chữ và số/);
+    assert.match((await reg('12345678')).body.message, /chữ và số/);
+    assert.match((await reg('Matkhau123')).body.message, /phổ biến/);
+    status(await reg('đèn2026led'), 201); // chữ có dấu vẫn tính là chữ
 
-    const login = await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: '12345678' } });
+    const login = await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: h.WORKER_PW } });
     status(login, 200);
     assert.ok(login.body.token && login.body.user.role === 'worker');
     status(await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: 'sai-mat-khau' } }), 401);
 
     const p = h.phone();
     status(await api('PATCH', '/api/worker/profile', { token: w.token, body: { phone: p } }), 200);
-    status(await api('POST', '/api/worker/auth/login', { body: { identifier: p, password: '12345678' } }), 200);
+    status(await api('POST', '/api/worker/auth/login', { body: { identifier: p, password: h.WORKER_PW } }), 200);
 
     // tài khoản khách không dùng app thợ và ngược lại
     const c = await h.customer();
@@ -61,9 +67,10 @@ describe('Đăng nhập & tài khoản', () => {
 
     const me = await api('GET', '/api/worker/auth/me', { token: w.token });
     assert.equal(me.body.user.email, w.email);
-    status(await api('POST', '/api/worker/auth/change-password', { token: w.token, body: { old_password: 'sai', new_password: 'abcdefgh' } }), 400);
-    status(await api('POST', '/api/worker/auth/change-password', { token: w.token, body: { old_password: '12345678', new_password: 'abcdefgh' } }), 200);
-    status(await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: 'abcdefgh' } }), 200);
+    status(await api('POST', '/api/worker/auth/change-password', { token: w.token, body: { old_password: 'sai', new_password: 'daydien99' } }), 400);
+    status(await api('POST', '/api/worker/auth/change-password', { token: w.token, body: { old_password: h.WORKER_PW, new_password: 'abcdefgh' } }), 400); // thiếu số
+    status(await api('POST', '/api/worker/auth/change-password', { token: w.token, body: { old_password: h.WORKER_PW, new_password: 'daydien99' } }), 200);
+    status(await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: 'daydien99' } }), 200);
   });
 
   test('quên mật khẩu: mã 6 số, chờ 1 phút mới gửi lại, sai mã bị đếm, đặt lại xong đăng nhập được', async () => {
@@ -76,10 +83,11 @@ describe('Đăng nhập & tài khoản', () => {
     assert.equal(unknown.status, 200); // không lộ email nào đã đăng ký
     assert.equal(unknown.body.debug_code, undefined);
     const wrong = r.body.debug_code === '000000' ? '111111' : '000000';
-    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: wrong, new_password: 'matkhaumoi' } }), 400);
-    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: r.body.debug_code, new_password: 'matkhaumoi' } }), 200);
-    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: r.body.debug_code, new_password: 'matkhaumoi2' } }), 400); // mã dùng 1 lần
-    status(await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: 'matkhaumoi' } }), 200);
+    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: wrong, new_password: 'matkhaumoi9' } }), 400);
+    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: r.body.debug_code, new_password: 'matkhaumoi' } }), 400); // thiếu số, mã chưa bị dùng
+    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: r.body.debug_code, new_password: 'matkhaumoi9' } }), 200);
+    status(await api('POST', '/api/worker/auth/reset-password', { body: { email: w.email, code: r.body.debug_code, new_password: 'matkhaumoi8' } }), 400); // mã dùng 1 lần
+    status(await api('POST', '/api/worker/auth/login', { body: { identifier: w.email, password: 'matkhaumoi9' } }), 200);
   });
 
   test('Google / Facebook: server tự xác minh token, tạo tài khoản thợ mới hoặc liên kết theo email', async () => {
@@ -119,11 +127,11 @@ describe('Đăng nhập & tài khoản', () => {
       assert.equal(f.body.user.id, g.body.user.id);
       assert.equal(f.body.is_new, false);
       // chưa có mật khẩu -> đăng nhập bằng mật khẩu báo dùng Google/Facebook
-      const pw = await api('POST', '/api/worker/auth/login', { body: { identifier: 'google.tho@gmail.com', password: '12345678' } });
+      const pw = await api('POST', '/api/worker/auth/login', { body: { identifier: 'google.tho@gmail.com', password: h.WORKER_PW } });
       status(pw, 401);
       assert.match(pw.body.message, /Google/);
       // đặt mật khẩu lần đầu không cần mật khẩu cũ
-      status(await api('POST', '/api/worker/auth/change-password', { token: g.body.token, body: { new_password: 'matkhau123' } }), 200);
+      status(await api('POST', '/api/worker/auth/change-password', { token: g.body.token, body: { new_password: 'thogoogle1' } }), 200);
     } finally {
       globalThis.fetch = realFetch;
       Object.assign(settings, { googleWebClientId: null, facebookAppId: null, facebookAppSecret: null });
@@ -153,14 +161,25 @@ describe('Hồ sơ & xác minh', () => {
     assert.equal(me.onboarding.can_submit, false);
     assert.equal(me.onboarding.missing.length, 5); // SĐT, nhóm dịch vụ, 3 giấy tờ
     status(await api('POST', '/api/worker/verification/submit', { token: w.token }), 400);
-    status(await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: 21, longitude: 105 } }), 400);
+    // chưa duyệt vẫn vào app được, chỉ không bật nhận đơn được; câu báo nói rõ phải làm gì
+    const off1 = await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: 21, longitude: 105 } });
+    status(off1, 400);
+    assert.match(off1.body.message, /chưa gửi hồ sơ/);
+    assert.equal((await api('GET', '/api/worker/home', { token: w.token })).body.review_state, 'not_submitted');
 
-    await api('PATCH', '/api/worker/profile', { token: w.token, body: { phone: h.phone(), bio: 'Thợ điện 5 năm', service_radius_km: 8 } });
-    status(await api('PUT', '/api/worker/skills', { token: w.token, body: { skills: [{ category_id: 99999, years: 2 }] } }), 400);
-    const sk = await api('PUT', '/api/worker/skills', { token: w.token, body: { skills: [{ category_id: C.CAT, years: 6 }] } });
+    await api('PATCH', '/api/worker/profile', { token: w.token, body: { phone: h.phone(), bio: 'Thợ điện 5 năm', service_radius_km: 8, experience_years: 6 } });
+    status(await api('PUT', '/api/worker/skills', { token: w.token, body: { category_ids: [99999] } }), 400);
+    status(await api('PUT', '/api/worker/skills', { token: w.token, body: { category_ids: [] } }), 400);
+    // số năm kinh nghiệm là con số chung: nhóm nào cũng lấy experience_years
+    const sk = await api('PUT', '/api/worker/skills', { token: w.token, body: { category_ids: [C.CAT, C.CAT2] } });
     status(sk, 200);
     assert.equal(sk.body[0].category_name, 'Sửa chữa điện');
-    assert.equal(sk.body[0].years, 6);
+    assert.deepEqual(sk.body.map((x) => x.years), [6, 6]);
+    await api('PATCH', '/api/worker/profile', { token: w.token, body: { experience_years: 9 } });
+    assert.deepEqual((await sql('SELECT years FROM worker_skills WHERE worker_id = $1', [w.id])).map((x) => x.years), [9, 9]);
+    // dạng cũ { skills: [...] } vẫn nhận (bỏ qua years riêng)
+    const old = await api('PUT', '/api/worker/skills', { token: w.token, body: { skills: [{ category_id: C.CAT, years: 2 }] } });
+    assert.deepEqual(old.body.map((x) => x.years), [9]);
     status(await api('POST', '/api/worker/documents', { token: w.token, body: { doc_type: 'id_card_front', file_url: 'ftp://x' } }), 400);
     for (const t of ['id_card_front', 'id_card_back', 'portrait']) {
       status(await api('POST', '/api/worker/documents', { token: w.token, body: { doc_type: t, file_url: await h.upload(w.token) } }), 201);
@@ -177,6 +196,9 @@ describe('Hồ sơ & xác minh', () => {
     status(await api('POST', '/api/worker/verification/submit', { token: w.token }), 400); // đã gửi rồi
     // admin được báo có hồ sơ chờ duyệt
     assert.equal((await sql("SELECT COUNT(*)::int AS n FROM notifications WHERE type = 'worker_verification'"))[0].n, 1);
+    const pend = await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: 21, longitude: 105 } });
+    assert.match(pend.body.message, /chờ quản trị viên duyệt/);
+    assert.equal((await api('GET', '/api/worker/home', { token: w.token })).body.review_state, 'pending');
 
     // admin (API của web quản trị) từ chối -> thợ thấy lý do, tải lại và gửi lại
     status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'rejected', note: 'Ảnh CCCD bị mờ' } }), 200);
@@ -185,7 +207,16 @@ describe('Hồ sơ & xác minh', () => {
     const note = (await api('GET', '/api/worker/notifications', { token: w.token })).body.items[0];
     assert.equal(note.type, 'verification');
     assert.equal(note.body, 'Ảnh CCCD bị mờ');
-    assert.ok(me.onboarding.reject_reasons.some((r) => r.includes('mờ')));
+    assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: Ảnh CCCD bị mờ']); // không lặp lý do theo từng ảnh
+    assert.equal(me.profile.review_state, 'rejected');
+    assert.deepEqual(Object.values(me.onboarding.documents).slice(0, 3), ['rejected', 'rejected', 'rejected']);
+    const rej = await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: 21, longitude: 105 } });
+    assert.match(rej.body.message, /chưa được duyệt: Ảnh CCCD bị mờ/);
+    // hồ sơ bị từ chối mà giấy tờ không bị đánh dấu riêng (VD sửa tay trong CSDL): lý do chung vẫn hiện
+    await sql("UPDATE worker_documents SET status = 'approved', reject_reason = NULL WHERE worker_id = $1", [w.id]);
+    me = (await api('GET', '/api/worker/me', { token: w.token })).body;
+    assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: Ảnh CCCD bị mờ']);
+    await sql("UPDATE worker_documents SET status = 'rejected', reject_reason = 'Ảnh CCCD bị mờ' WHERE worker_id = $1", [w.id]);
     for (const t of ['id_card_front', 'id_card_back', 'portrait']) {
       await api('POST', '/api/worker/documents', { token: w.token, body: { doc_type: t, file_url: await h.upload(w.token) } });
     }
@@ -230,7 +261,7 @@ describe('Hồ sơ & xác minh', () => {
 describe('Luồng đơn đầy đủ (chế độ tức thời)', () => {
   beforeEach(() => reset({ mode: 'instant', maxOffers: 2 }));
 
-  test('offer -> nhận -> đi -> đến -> an toàn -> báo giá -> ảnh -> xong -> tiền mặt -> ví -> đánh giá -> rút tiền', async () => {
+  test('offer -> nhận -> đi -> đến -> an toàn -> báo giá -> ảnh -> xong -> khách trả online -> ví -> đánh giá -> rút tiền', async () => {
     const w1 = await h.readyWorker(ADMIN, { name: 'Thợ Một', at: off(0.5, 0), trust: 0.9 });
     const w2 = await h.readyWorker(ADMIN, { name: 'Thợ Hai', at: off(1.5, 0), trust: 0.7 });
     const cus = await h.customer('Nguyễn Thị Hoa');
@@ -314,29 +345,42 @@ describe('Luồng đơn đầy đủ (chế độ tức thời)', () => {
     status(done, 200);
     assert.equal(done.body.final_price, 370000);
     assert.equal(done.body.warranty.status, 'active');
-    assert.equal(done.body.can_confirm_cash, true);
-    assert.equal(done.body.amount_to_collect, 370000);
+    assert.equal(done.body.awaiting_payment, true);
+    assert.equal(done.body.amount_due, 370000);
     assert.deepEqual(done.body.photos.map((p) => p.kind), ['before', 'after', 'after']);
     assert.equal((await api('GET', '/api/worker/home', { token: w1.token })).body.availability, 'online');
     c = (await api('GET', `/api/customer/orders/${oid}`, { token: cus.token })).body;
     assert.equal(c.status, 'completed');
     assert.equal(c.can_pay, true);
 
-    // khách chọn tiền mặt -> thợ xác nhận -> ví trừ hoa hồng 15%
-    status(await api('POST', `/api/customer/orders/${oid}/payments`, { token: cus.token, body: { method: 'cash' } }), 201);
-    assert.equal((await api('GET', `/api/worker/orders/${oid}`, { token: w1.token })).body.customer_chose_cash, true);
-    const cash = await api('POST', `/api/worker/orders/${oid}/confirm-cash`, { token: w1.token });
-    status(cash, 200);
-    assert.equal(cash.body.paid, true);
-    assert.deepEqual(cash.body.earning, { gross_amount: 370000, commission_amount: 55500, net_amount: 314500 });
-    status(await api('POST', `/api/worker/orders/${oid}/confirm-cash`, { token: w1.token }), 400);
+    // chưa trả tiền đơn này thì khách chưa đặt được đơn mới
+    const blocked = await api('POST', '/api/customer/orders', { token: cus.token, body: { service_id: C.SVC, address_id: cus.addressId } });
+    status(blocked, 400);
+    assert.match(blocked.body.message, /chưa thanh toán đơn/);
+    // không nhận tiền mặt; thợ không có nút thu tiền mặt
+    const cashTry = await api('POST', `/api/customer/orders/${oid}/payments`, { token: cus.token, body: { method: 'cash' } });
+    status(cashTry, 400);
+    assert.match(cashTry.body.message, /không nhận tiền mặt/);
+    status(await api('POST', `/api/worker/orders/${oid}/confirm-cash`, { token: w1.token }), 404);
+    // khách trả MoMo (sandbox) -> ví thợ cộng phần thực nhận (đã trừ 15%)
+    const pay = await api('POST', `/api/customer/orders/${oid}/payments`, { token: cus.token, body: { method: 'momo' } });
+    status(pay, 201);
+    status(await api('POST', `/api/customer/payments/${pay.body.id}/sandbox-confirm`, { token: cus.token }), 200);
+    const paid = (await api('GET', `/api/worker/orders/${oid}`, { token: w1.token })).body;
+    assert.equal(paid.paid, true);
+    const payNote = (await api('GET', '/api/worker/notifications', { token: w1.token })).body.items[0];
+    assert.equal(payNote.type, 'payment');
+    assert.match(payNote.body, /khách trả 370\.000đ qua MoMo, \+314\.500đ vào ví/);
+    assert.equal(payNote.data.net_amount, 314500);
+    assert.equal(paid.awaiting_payment, false);
+    assert.deepEqual(paid.earning, { gross_amount: 370000, commission_amount: 55500, net_amount: 314500 });
     const wallet = (await api('GET', '/api/worker/wallet', { token: w1.token })).body;
-    assert.equal(wallet.balance, -55500);
-    assert.equal(wallet.recent[0].type, 'commission');
-    assert.equal(wallet.recent[0].balance_after, -55500);
+    assert.equal(wallet.balance, 314500);
+    assert.equal(wallet.recent[0].type, 'earning');
+    assert.equal(wallet.recent[0].balance_after, 314500);
     const sToday = (await api('GET', '/api/worker/earnings/summary?period=today', { token: w1.token })).body;
     assert.equal(sToday.totals.net, 314500);
-    assert.equal(sToday.totals.cash_collected, 370000);
+    assert.equal(sToday.totals.commission, 55500);
     assert.equal(sToday.totals.orders, 1);
     assert.equal(sToday.chart.length, 7);
     assert.equal(sToday.chart.at(-1).net, 314500);
@@ -388,16 +432,18 @@ describe('Luồng đơn đầy đủ (chế độ tức thời)', () => {
     const bank = await api('PUT', '/api/worker/bank-account', { token: w1.token, body: { bank_name: 'Vietcombank', account_number: '0123 456 789', account_holder: 'thợ một' } });
     status(bank, 200);
     assert.equal(bank.body.account_number, '0123456789');
-    status(await api('POST', '/api/worker/wallet/withdrawals', { token: w1.token, body: { amount: 100000 } }), 400); // ví âm
-    status(await api('POST', '/api/worker/wallet/topup', { token: w1.token, body: { amount: 500000, method: 'momo' } }), 200);
+    status(await api('POST', '/api/worker/wallet/withdrawals', { token: w1.token, body: { amount: 400000 } }), 400); // vượt số dư
+    status(await api('POST', '/api/worker/wallet/topup', { token: w1.token, body: { amount: 500000, method: 'momo' } }), 404); // đã bỏ nạp tiền
     const wd = await api('POST', '/api/worker/wallet/withdrawals', { token: w1.token, body: { amount: 200000 } });
     status(wd, 201);
     assert.equal(wd.body.status, 'completed');
     assert.equal(wd.body.account_holder, 'THỢ MỘT');
-    assert.equal((await api('GET', '/api/worker/wallet', { token: w1.token })).body.balance, -55500 + 500000 - 200000);
+    assert.equal((await api('GET', '/api/worker/wallet', { token: w1.token })).body.balance, 314500 - 200000);
     status(await api('POST', '/api/worker/wallet/withdrawals', { token: w1.token, body: { amount: 30000 } }), 400);
     const txs = (await api('GET', '/api/worker/wallet/transactions', { token: w1.token })).body;
-    assert.deepEqual(txs.items.map((t) => t.type), ['withdraw', 'topup', 'commission']);
+    assert.deepEqual(txs.items.map((t) => t.type), ['withdraw', 'earning']);
+    // đã trả xong thì đặt đơn mới được
+    status(await api('POST', '/api/customer/orders', { token: cus.token, body: { service_id: C.SVC, address_id: cus.addressId } }), 201);
   });
 
   test('khách trả online (MoMo sandbox) -> ví thợ cộng phần thực nhận', async () => {
@@ -421,18 +467,6 @@ describe('Luồng đơn đầy đủ (chế độ tức thời)', () => {
     const job = (await api('GET', `/api/worker/orders/${oid}`, { token: w.token })).body;
     assert.equal(job.payment_method, 'momo');
     assert.equal(job.net_earning, 212500);
-  });
-
-  test('ví âm quá hạn mức thì không bật nhận đơn được và không được ghép', async () => {
-    const w = await h.readyWorker(ADMIN, { at: off(0.3, 0) });
-    await sql('UPDATE workers SET wallet_balance = -600000 WHERE user_id = $1', [w.id]);
-    const cus = await h.customer();
-    await h.order(cus, C.SVC);
-    assert.equal(await h.offer(w), null);
-    await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: false } });
-    const r = await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: off()[0], longitude: off()[1] } });
-    status(r, 400);
-    assert.match(r.body.message, /Ví đang âm/);
   });
 });
 
@@ -733,6 +767,34 @@ describe('Realtime (Socket.IO) + admin', () => {
     }
   });
 
+  test('admin bỏ duyệt thợ đang nhận đơn: thợ bị tắt nhận đơn, lời mời bị thu hồi, app được báo', async () => {
+    await reset({ mode: 'instant', maxOffers: 1 });
+    const w = await h.readyWorker(ADMIN, { name: 'Thợ Bị Bỏ Duyệt', at: off(0.4, 0) });
+    const cus = await h.customer();
+    const ws = await new Promise((resolve, reject) => {
+      const s = ioClient(BASE, { auth: { token: w.token }, transports: ['websocket'], reconnection: false });
+      s.on('connect', () => resolve(s));
+      s.on('connect_error', reject);
+    });
+    try {
+      const oid = await h.order(cus, C.SVC);
+      const live = await h.offer(w);
+      assert.equal(live.order_id, oid);
+      const closed = new Promise((r) => ws.once('offer:closed', r));
+      const noti = new Promise((r) => ws.once('notification:new', r));
+      status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'rejected', note: 'Ảnh chân dung không rõ mặt' } }), 200);
+      assert.equal((await closed).offer_id, live.id);
+      assert.equal((await noti).type, 'verification');
+      const home = (await api('GET', '/api/worker/home', { token: w.token })).body;
+      assert.deepEqual([home.availability, home.review_state, home.can_go_online], ['offline', 'rejected', false]);
+      assert.match(home.blockers[0], /Ảnh chân dung không rõ mặt/);
+      const docs = (await api('GET', '/api/worker/me', { token: w.token })).body.onboarding.documents;
+      assert.equal(docs.portrait, 'rejected');
+    } finally {
+      ws.close();
+    }
+  });
+
   test('admin: xem trạng thái điều phối, đổi chế độ ghép, form cấu hình nhận mode/max_offers, duyệt / từ chối lệnh rút', async () => {
     await reset();
     const st = await api('GET', '/api/admin/dispatch/status', { cookie: ADMIN });
@@ -760,7 +822,7 @@ describe('Realtime (Socket.IO) + admin', () => {
     try {
       const w = await h.registerWorker();
       await api('PUT', '/api/worker/bank-account', { token: w.token, body: { bank_name: 'ACB', account_number: '123456789', account_holder: 'Nguyen Van A' } });
-      await api('POST', '/api/worker/wallet/topup', { token: w.token, body: { amount: 400000 } });
+      await sql('UPDATE workers SET wallet_balance = 400000 WHERE user_id = $1', [w.id]); // như đã nhận tiền 1 đơn
       const r1 = await api('POST', '/api/worker/wallet/withdrawals', { token: w.token, body: { amount: 100000 } });
       const r2 = await api('POST', '/api/worker/wallet/withdrawals', { token: w.token, body: { amount: 150000 } });
       assert.equal(r1.body.status, 'pending');

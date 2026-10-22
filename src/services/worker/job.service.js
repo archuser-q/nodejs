@@ -14,7 +14,6 @@ import { transaction } from '../../utils/tx.js';
 import { givenName, money, vnClock, vnTime } from '../../utils/vn.js';
 import { addHistory } from '../customer/common.js';
 import { emitOrderUpdated, notify } from '../customer/notify.service.js';
-import { settlePayment } from '../customer/interaction.service.js';
 import * as dispatch from '../matching/dispatch.service.js';
 import { OPEN_JOB_STATUSES, commissionOf, refreshAvailability } from './state.js';
 
@@ -195,7 +194,6 @@ export async function jobDetail(workerId, orderId) {
   const pendingQuote = quotes.rows.some((qq) => qq.status === 'pending');
   const hasAfter = photos.rows.some((p) => p.kind === 'after');
   const success = payments.rows.find((p) => p.status === 'success');
-  const cashPending = !success && payments.rows.some((p) => p.status === 'pending' && p.method === 'cash');
   const next = NEXT_STATUS[item.status] ?? null;
   const startAt = tripStartAt(item);
   const total = item.total_amount;
@@ -231,8 +229,6 @@ export async function jobDetail(workerId, orderId) {
     cancel_requeues: ['accepted', 'on_the_way'].includes(item.status),
     can_quote: QUOTE_STATUSES.includes(item.status) && !pendingQuote,
     can_add_photos: ['arrived', 'in_progress'].includes(item.status),
-    can_confirm_cash: item.status === 'completed' && !item.paid,
-    customer_chose_cash: cashPending,
     can_chat: CHAT_STATUSES.includes(item.status),
     can_report: !report.rows.length,
     needs_after_photo: item.status === 'in_progress' && !hasAfter,
@@ -240,7 +236,9 @@ export async function jobDetail(workerId, orderId) {
     safety_checked_at: x.safety_checked_at,
     start_available_at: startAt && now < startAt.getTime() ? startAt : null,
     has_pending_quote: pendingQuote,
-    amount_to_collect: item.status === 'completed' && !item.paid ? total : null,
+    // Khách trả qua app (MoMo / VNPay) sau khi thợ hoàn thành; thợ không thu tiền mặt
+    awaiting_payment: item.status === 'completed' && !item.paid,
+    amount_due: item.status === 'completed' && !item.paid ? total : null,
   };
 }
 
@@ -419,39 +417,6 @@ export async function cancelQuote(workerId, orderId, quoteId) {
       });
     });
   });
-  return jobDetail(workerId, orderId);
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// Thu tiền mặt
-// ═════════════════════════════════════════════════════════════════════════
-
-/**
- * Thợ xác nhận đã thu tiền mặt. Khách có thể đã chọn "tiền mặt" trên app (payment pending) hoặc trả trực tiếp
- * không bấm gì: cả 2 trường hợp đều đi qua settlePayment của app khách (ghi nhận + cộng/trừ ví thợ).
- */
-export async function confirmCash(workerId, orderId) {
-  const paymentId = await transaction(async (db) => {
-    const o = await ownJob(db, workerId, orderId, true);
-    if (o.status !== 'completed') throw new AppError(400, 'Chỉ xác nhận thu tiền khi đơn đã hoàn thành');
-    const { rows } = await sql(
-      db,
-      "SELECT id, method, status FROM payments WHERE order_id = $1 AND status IN ('pending', 'success') FOR UPDATE",
-      [orderId],
-    );
-    if (rows.some((p) => p.status === 'success')) throw new AppError(400, 'Đơn đã được thanh toán');
-    const amount = o.final_price ?? Number(o.estimated_price) + Number(o.extra_amount);
-    const cash = rows.find((p) => p.method === 'cash');
-    // Khách đã mở thanh toán ví nhưng cuối cùng trả tiền mặt
-    await sql(db, "UPDATE payments SET status = 'failed' WHERE order_id = $1 AND status = 'pending' AND method <> 'cash'", [orderId]);
-    if (cash) {
-      await sql(db, 'UPDATE payments SET amount = $2 WHERE id = $1', [cash.id, amount]);
-      return cash.id;
-    }
-    const { rows: ins } = await sql(db, "INSERT INTO payments (order_id, method, amount) VALUES ($1, 'cash', $2) RETURNING id", [orderId, amount]);
-    return ins[0].id;
-  });
-  await settlePayment(paymentId);
   return jobDetail(workerId, orderId);
 }
 

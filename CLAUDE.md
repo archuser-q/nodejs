@@ -19,6 +19,10 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
 - **Phạm vi chỉ gồm dịch vụ của thợ điện.** Danh mục là 4 nhóm chuyên môn: Sửa chữa điện · Lắp đặt thiết bị điện · Đồ điện gia dụng · Đi dây & tủ điện. Không thêm Nước, Điện lạnh, Khoá, Sơn...
 - **Khách không chọn chế độ ghép.** Hệ thống tự ghép theo cấu hình admin đang bật, mặc định `auto` (đơn đứng riêng thì gửi ngay bằng Greedy, nhóm đơn tranh cùng thợ thì giải bằng Hungarian).
 - Đăng nhập bằng email, Google hoặc Facebook (không dùng SMS OTP). Bản đồ dùng loại miễn phí. Mỗi phần chạy được bằng `docker compose up`.
+- **Không nhận tiền mặt.** Khách trả qua MoMo / VNPay (sandbox) trên app khách; trả xong thì 85% vào ví thợ, thợ rút về ngân hàng. Không có nạp ví, ví thợ không âm. Khách còn đơn đã xong mà chưa trả thì chưa đặt được đơn mới.
+- **Số năm kinh nghiệm của thợ là 1 con số chung** (`workers.experience_years`) cho mọi nhóm dịch vụ; `worker_skills.years` luôn bằng con số này (hàm điểm vẫn đọc cột đó).
+- **Thợ chưa được duyệt vẫn vào được app** nhưng không bật nhận đơn được. Admin từ chối / bỏ duyệt thì thợ bị tắt nhận đơn ngay.
+- **Mật khẩu tài khoản thợ:** 8–72 ký tự, có cả chữ và số, chặn mật khẩu quá phổ biến (`password()` trong `src/utils/validate.js`). Không bắt chữ hoa / ký tự đặc biệt (theo NIST SP 800-63B).
 
 ## 2. Những điều KHÔNG được làm
 
@@ -30,7 +34,7 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
    Nếu thấy cần đổi, ghi vào mô tả Pull Request mục "Đề nghị gửi B" để B sửa.
 2. **Không đổi API app thợ** (`/api/worker`, xem `docs/WORKER_API.md`) và các sự kiện Socket.IO (`offer:new`, `offer:closed`, `order:updated`, `message:new`, `notification:new`, `worker:location`). App thợ đang dùng đúng tên trường và định dạng hiện tại.
 3. **Không gửi lời mời (offer) cho thợ trực tiếp.** Đơn mới chỉ cần gọi `dispatchOffers(orderId)` (`src/services/customer/dispatch.service.js`) sau khi đơn đã lưu; bộ điều phối lo phần còn lại. Không ghi thẳng vào `order_offers` / `order_dispatches`.
-4. **Không tự cộng/trừ ví thợ.** Mọi thanh toán thành công phải đi qua `settlePayment()` (`src/services/customer/interaction.service.js`). Hàm này gọi `recordPaidOrder()` để chốt hoa hồng 15 %, có chống ghi trùng. Không sửa trực tiếp `workers.wallet_balance` hay `worker_transactions`.
+4. **Không tự cộng/trừ ví thợ.** Mọi thanh toán thành công phải đi qua `settlePayment()` (`src/services/customer/interaction.service.js`). Hàm này gọi `recordPaidOrder()` để cộng phần thực nhận (tổng tiền − 15 %) vào ví thợ, có chống ghi trùng. Không sửa trực tiếp `workers.wallet_balance` hay `worker_transactions`. Không thêm lại phương thức `cash`.
 5. **Huỷ đơn phải theo mẫu có sẵn** (xem `cancelOrder` của khách và của admin):
    - đóng lời mời đang mở với `reason = 'closed'`;
    - báo `offer:closed` cho thợ;
@@ -74,7 +78,7 @@ Không dùng Docker: `cp .env.example .env`, sửa `DATABASE_URL`, rồi `npm in
 - Tài khoản demo (mật khẩu `12345678`): `admin@thonhanh.vn`, `khach@thonhanh.vn` (SĐT 0912000001), `tho@thonhanh.vn`, `tho2@thonhanh.vn`, `tho.moi@thonhanh.vn` (chờ duyệt), `tho.ao01..12@thonhanh.vn` (thợ ảo).
 - **Không có app thợ trong tay** mà muốn có thợ nhận đơn: `docker compose --profile bots up -d` (thợ ảo tự nhận và làm đơn). Hoặc chạy app thợ bản web (repo app thợ, cổng 8082).
 - Đóng vai khách qua đúng API app khách: `docker compose exec api npm run demo:customer -- order` (các lệnh khác ghi ở đầu file `scripts/demo-customer.js`).
-- **Kiểm thử bắt buộc trước khi mở PR:** `npm test` (27 nhóm, cần PostgreSQL + PostGIS ở máy; CSDL test `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`). Tất cả phải đạt.
+- **Kiểm thử bắt buộc trước khi mở PR:** `npm test` (27 bài, cần PostgreSQL + PostGIS ở máy; CSDL test `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`). Tất cả phải đạt.
 
 ## 5. Việc cần làm theo từng người
 
@@ -88,10 +92,13 @@ Lý do chi tiết từng mục: `docs/TICH_HOP_THANH_VIEN_B.md` mục 4.
 - [ ] Cho khách gửi **ảnh tình trạng** khi đặt đơn: tải qua `POST /api/uploads`, gửi `image_urls` khi tạo đơn, lưu vào `orders.image_urls`. App thợ đã hiển thị sẵn.
 - [ ] Tài khoản khách: đăng nhập Google/Facebook, quên mật khẩu, đổi mật khẩu, đăng ký thiết bị nhận push. Có thể làm theo mẫu `services/worker/auth.service.js`, `social.js`.
 - [ ] App khách: chat hiển thị ảnh (trường `image_url`); kiểu trạng thái báo giá thêm `'cancelled'`.
+- [ ] App khách: **bỏ lựa chọn "Tiền mặt"** ở màn thanh toán (backend trả 400 khi gửi `cash`). Đặt đơn mà nhận lỗi "Bạn chưa thanh toán đơn ..." thì đưa khách tới đơn đó để trả.
+- [ ] Mật khẩu khách (hiện ≥ 6 ký tự) nên dùng chung `password()` của `src/utils/validate.js` cho đồng bộ với thợ.
+- [ ] `dev-tools/` còn lệnh `confirm-cash`, `scripts/mockData/seed_orders.sql` còn sinh thanh toán `cash`: không còn đúng nghiệp vụ.
 - [ ] Bảo hành: hiện mới tạo khiếu nại. Chốt luồng "admin duyệt → tạo đơn bảo hành 0đ cho thợ cũ" rồi báo B làm phần app thợ.
 - [ ] `getOrderDetail` của khách: bỏ `refreshOffers` (đang ghi CSDL mỗi lần xem; bộ điều phối đã tự lo).
 - [ ] Đổi các thông báo lỗi tiếng Anh sang tiếng Việt: các service admin ("Worker not found", "Cannot cancel..."), và `ErrorHandler` ("Already exists", "Related record not found", "Internal server error").
-- [ ] Xoá thư mục `dev-tools/` (mở `/api/dev` **không cần đăng nhập** khi không phải production) cùng 2 script `seed:dev`, `simulate` trong `package.json`. Xoá file lạc `src/routes/customer/1.txt`.
+- [ ] Xoá thư mục `dev-tools/` (mở `/api/dev` **không cần đăng nhập** khi không phải production) cùng 2 script `seed:dev`, `simulate` trong `package.json`. Xoá các file lạc `1.txt` (VD `src/routes/customer/1.txt`; B đã xoá 2 file trong `controllers/worker`, `routes/worker`).
 
 ### Web quản trị
 

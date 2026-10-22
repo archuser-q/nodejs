@@ -9,6 +9,7 @@ import { recordPaidOrder } from '../worker/finance.service.js'; // [B] ví thợ
 import { workerLevel } from '../worker/level.js'; // hạng thợ (Đồng/Bạc/Vàng/Kim cương) — chỉ để hiển thị
 
 const money = (n) => `${Number(n).toLocaleString('vi-VN')}đ`;
+const PAYMENT_LABEL = { momo: 'MoMo', vnpay: 'VNPay' }; // [B]
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 
@@ -95,14 +96,11 @@ export const createPayment = async (customerId, orderId, method) => {
       [orderId],
     );
     if (existing.some((p) => p.status === 'success')) throw new AppError(409, 'Đơn này đã được thanh toán');
-    if (existing.some((p) => p.method === 'cash')) {
-      throw new AppError(409, 'Bạn đã chọn trả tiền mặt, đang chờ thợ xác nhận');
-    }
-    // Lần thanh toán ví trước chưa xong => huỷ để tạo lần mới
+    // Lần thanh toán ví trước chưa xong => huỷ để tạo lần mới ([B] kể cả bản ghi tiền mặt cũ, nền tảng không nhận tiền mặt)
     await sql(db, "UPDATE payments SET status = 'failed' WHERE order_id = $1 AND status = 'pending'", [orderId]);
 
     const amount = o.final_price ?? Number(o.estimated_price) + Number(o.extra_amount);
-    const txn = method === 'cash' ? null : `SANDBOX-${method.toUpperCase()}-${crypto.randomBytes(5).toString('hex')}`;
+    const txn = `SANDBOX-${method.toUpperCase()}-${crypto.randomBytes(5).toString('hex')}`;
     const { rows } = await sql(
       db,
       `INSERT INTO payments (order_id, method, amount, provider_txn_id) VALUES ($1, $2, $3, $4)
@@ -113,14 +111,6 @@ export const createPayment = async (customerId, orderId, method) => {
   });
 
   emitOrderUpdated(result.order);
-  if (method === 'cash') {
-    await notify(result.order.worker_id, {
-      title: 'Khách trả tiền mặt',
-      body: `Đơn ${result.order.code}: thu ${money(result.payment.amount)} và xác nhận trên app`,
-      type: 'payment',
-      data: { order_id: result.order.id, payment_id: result.payment.id },
-    });
-  }
   // Sandbox: chưa có cổng thật nên không có pay_url, app tự gọi sandbox-confirm
   return { ...result.payment, pay_url: null };
 };
@@ -147,10 +137,10 @@ export const settlePayment = (paymentId) =>
        RETURNING id, code, status, customer_id, worker_id`,
       [payment.order_id, payment.amount],
     );
-    // [B] Chốt hoa hồng + cộng/trừ ví thợ trong cùng transaction (idempotent)
-    await recordPaidOrder(db, payment.order_id);
-    return { payment, order: ord[0] };
-  }).then(async ({ payment, order }) => {
+    // [B] Chốt hoa hồng + cộng phần thực nhận vào ví thợ trong cùng transaction (idempotent)
+    const earning = await recordPaidOrder(db, payment.order_id);
+    return { payment, order: ord[0], earning };
+  }).then(async ({ payment, order, earning }) => {
     emitOrderUpdated(order);
     await notify(order.customer_id, {
       title: 'Thanh toán thành công',
@@ -159,11 +149,15 @@ export const settlePayment = (paymentId) =>
       data: { order_id: order.id, payment_id: payment.id },
     });
     if (order.worker_id) {
+      // [B] Báo thợ số tiền thực nhận đã vào ví (app thợ hiện thông báo nổi ngay khi đang mở)
+      const via = PAYMENT_LABEL[payment.method] ?? payment.method;
       await notify(order.worker_id, {
-        title: 'Đơn đã được thanh toán',
-        body: `Đơn ${order.code}: ${money(payment.amount)}`,
+        title: 'Khách đã thanh toán',
+        body: earning
+          ? `Đơn ${order.code}: khách trả ${money(payment.amount)} qua ${via}, +${money(earning.amount)} vào ví của bạn`
+          : `Đơn ${order.code}: khách trả ${money(payment.amount)} qua ${via}`,
         type: 'payment',
-        data: { order_id: order.id, payment_id: payment.id },
+        data: { order_id: order.id, payment_id: payment.id, net_amount: earning?.amount ?? null },
       });
     }
     return payment;
@@ -177,7 +171,7 @@ export const sandboxConfirm = async (customerId, paymentId) => {
     [paymentId, customerId],
   );
   if (!rows[0]) throw new AppError(404, 'Không tìm thấy giao dịch');
-  if (rows[0].method === 'cash') throw new AppError(400, 'Thanh toán tiền mặt do thợ xác nhận');
+  if (rows[0].method === 'cash') throw new AppError(400, 'Thợ Nhanh không nhận tiền mặt, vui lòng thanh toán qua MoMo hoặc VNPay');
   return settlePayment(paymentId);
 };
 

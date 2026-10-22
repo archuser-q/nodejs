@@ -55,7 +55,6 @@ router.post('/orders/:id/photos', job.addPhotos);
 router.delete('/orders/:id/photos/:photoId', job.deletePhoto);
 router.post('/orders/:id/extra-quotes', job.createQuote);
 router.post('/orders/:id/extra-quotes/:quoteId/cancel', job.cancelQuote);
-router.post('/orders/:id/confirm-cash', job.confirmCash);
 router.post('/orders/:id/report', job.report);
 router.get('/orders/:id/messages', job.listMessages);
 router.post('/orders/:id/messages', job.sendMessage);
@@ -69,7 +68,6 @@ router.get('/wallet', finance.wallet);
 router.get('/wallet/transactions', finance.transactions);
 router.post('/wallet/withdrawals', finance.withdraw);
 router.get('/wallet/withdrawals', finance.withdrawals);
-router.post('/wallet/topup', finance.topup);
 
 // ── Đánh giá & hiệu suất ────────────────────────────────────────────────────
 router.get('/reviews', finance.reviews);

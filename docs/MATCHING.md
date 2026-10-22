@@ -37,7 +37,6 @@ Thợ là người thật nên có thể từ chối hoặc không trả lời. 
 | đang bật nhận đơn; với đơn làm ngay thì phải đang rảnh | đơn hẹn giờ vẫn mời được thợ đang bận việc khác |
 | không đang giữ lời mời khác | mỗi thợ chỉ cân nhắc 1 lời mời một lúc |
 | chưa từng được mời đơn này | đã từ chối hoặc bỏ lỡ thì không mời lại |
-| ví không âm quá hạn mức (`WALLET_DEBT_LIMIT`, mặc định 500.000đ) | buộc nộp hoa hồng của đơn tiền mặt |
 | không có lịch trùng trong ±120 phút (đơn hẹn giờ) | không nhận 2 lịch chồng nhau |
 
 **Bước 3: hàm điểm** (`services/scoring.js`, `matching/scoring.js`):
@@ -47,7 +46,7 @@ S(thợ, đơn) = w_d·s_distance + w_t·s_trust + w_s·s_skill + w_a·s_accepta
 
 s_distance   = 1 − d / R                         d: khoảng cách thật (PostGIS, mét), R: bán kính của cấu hình
 s_trust      = trust_score ∈ [0, 1]               điểm tin cậy (thuật toán Trust Score – thành viên A)
-s_skill      = min(số năm KN ở đúng nhóm, 10) / 10
+s_skill      = min(số năm kinh nghiệm, 10) / 10     (1 con số chung thợ khai ở hồ sơ, áp cho mọi nhóm thợ nhận làm)
 s_acceptance = tỷ lệ nhận đơn 30 ngày (làm mượt Bayes, xem dưới)
 s_workload   = 1 − min(số đơn trong ngày, 5) / 5  chia đều việc
 ```
@@ -129,7 +128,7 @@ Hạn chót của đơn:
 | `batch_window_seconds` | 10 | cửa sổ gom lô (chỉ chế độ batch) |
 
 Đổi nhanh khi demo: `PUT /api/admin/dispatch/mode { mode, max_offers }`. Xem trạng thái vòng điều phối: `GET /api/admin/dispatch/status`.
-Biến môi trường liên quan: `DISPATCHER_ENABLED`, `DISPATCHER_TICK_SECONDS`, `LOCATION_MAX_AGE_MINUTES`, `DISPATCH_MAX_WAIT_MINUTES`, `TRUST_COLD_START`, `WALLET_DEBT_LIMIT` (xem `.env.example`).
+Biến môi trường liên quan: `DISPATCHER_ENABLED`, `DISPATCHER_TICK_SECONDS`, `LOCATION_MAX_AGE_MINUTES`, `DISPATCH_MAX_WAIT_MINUTES`, `TRUST_COLD_START` (xem `.env.example`).
 
 ## 6. Thực nghiệm
 

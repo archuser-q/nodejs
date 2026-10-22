@@ -78,16 +78,17 @@ export const updateProfile = async (req, res) => {
   res.json(await profile.updateProfile(req.user.id, f));
 };
 
-/** PUT /skills { skills: [{ category_id, years }] } */
+/**
+ * PUT /skills { category_ids: [1, 2] }
+ * Số năm kinh nghiệm là 1 con số chung của thợ (PATCH /profile experience_years), áp dụng cho mọi nhóm đã chọn.
+ * Vẫn nhận dạng cũ { skills: [{ category_id }] } (bỏ qua years) để app bản cũ không lỗi.
+ */
 export const setSkills = async (req, res) => {
-  const list = body(req).skills;
-  if (!Array.isArray(list) || !list.length) throw new AppError(400, 'Chọn ít nhất 1 nhóm dịch vụ nhận làm');
-  if (list.length > 30) throw new AppError(400, 'Chọn tối đa 30 nhóm dịch vụ');
-  const skills = list.map((s) => ({
-    category_id: v.id(s?.category_id, 'Nhóm dịch vụ'),
-    years: v.int(s?.years ?? 0, 'số năm kinh nghiệm', { min: 0, max: 60 }),
-  }));
-  res.json(await profile.setSkills(req.user.id, skills));
+  const b = body(req);
+  const raw = Array.isArray(b.category_ids) ? b.category_ids : Array.isArray(b.skills) ? b.skills.map((s) => s?.category_id) : null;
+  if (!raw || !raw.length) throw new AppError(400, 'Chọn ít nhất 1 nhóm dịch vụ nhận làm');
+  if (raw.length > 30) throw new AppError(400, 'Chọn tối đa 30 nhóm dịch vụ');
+  res.json(await profile.setSkills(req.user.id, raw.map((x) => v.id(x, 'Nhóm dịch vụ'))));
 };
 
 export const listDocuments = async (req, res) => res.json(await profile.listDocuments(req.user.id));

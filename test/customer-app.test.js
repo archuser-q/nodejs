@@ -2,7 +2,7 @@
  * Kiểm thử tích hợp phần App Khách hàng sau khi ghép với App Thợ:
  * tài khoản (email / SĐT, quên & đổi mật khẩu, thiết bị push), quy tắc đặt đơn
  * (bỏ matching_mode, giờ hẹn ≥ 60 phút, ảnh tình trạng, bắt buộc SĐT), chi tiết đơn cho khách
- * (tiến độ tìm thợ, ảnh trước/sau, hạng thợ) và chat có ảnh.
+ * (tiến độ tìm thợ, ảnh trước/sau, hạng thợ), chat có ảnh và thanh toán (không tiền mặt).
  *   npm test
  */
 import './env.js';
@@ -38,21 +38,23 @@ describe('App khách: tài khoản', () => {
     const phone = h.phone();
 
     status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', email, password: '123' } }), 400);
-    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', password: '12345678' } }), 400);
-    const reg = await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', email, phone, password: '12345678' } });
+    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', email, password: '12345678' } }), 400); // quá phổ biến
+    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', email, password: 'chikhongso' } }), 400); // thiếu số
+    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', password: 'Khach2026' } }), 400);
+    const reg = await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách A', email, phone, password: 'Khach2026' } });
     status(reg, 201);
     assert.equal(reg.body.user.role, 'customer');
-    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách B', email: email.toUpperCase(), password: '12345678' } }), 409);
+    status(await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách B', email: email.toUpperCase(), password: 'Khach2026' } }), 409);
 
-    status(await api('POST', '/api/customer/auth/login', { body: { identifier: email, password: '12345678' } }), 200);
-    status(await api('POST', '/api/customer/auth/login', { body: { identifier: phone, password: '12345678' } }), 200);
+    status(await api('POST', '/api/customer/auth/login', { body: { identifier: email, password: 'Khach2026' } }), 200);
+    status(await api('POST', '/api/customer/auth/login', { body: { identifier: phone, password: 'Khach2026' } }), 200);
     const wrong = await api('POST', '/api/customer/auth/login', { body: { identifier: email, password: 'sai-mat-khau' } });
     status(wrong, 401);
     assert.match(wrong.body.message, /Sai email/);
 
     // Tài khoản thợ không đăng nhập được app khách
     const w = await h.registerWorker('Thợ Thử');
-    const asWorker = await api('POST', '/api/customer/auth/login', { body: { identifier: w.email, password: '12345678' } });
+    const asWorker = await api('POST', '/api/customer/auth/login', { body: { identifier: w.email, password: h.WORKER_PW } });
     status(asWorker, 403);
     assert.match(asWorker.body.message, /tài khoản thợ/);
 
@@ -60,7 +62,7 @@ describe('App khách: tài khoản', () => {
     const me = await api('GET', '/api/customer/auth/me', { token });
     assert.equal(me.body.has_password, true);
     status(await api('POST', '/api/customer/auth/change-password', { token, body: { old_password: 'sai', new_password: 'matkhaumoi1' } }), 400);
-    status(await api('POST', '/api/customer/auth/change-password', { token, body: { old_password: '12345678', new_password: 'matkhaumoi1' } }), 200);
+    status(await api('POST', '/api/customer/auth/change-password', { token, body: { old_password: 'Khach2026', new_password: 'matkhaumoi1' } }), 200);
     status(await api('POST', '/api/customer/auth/login', { body: { identifier: email, password: 'matkhaumoi1' } }), 200);
 
     // Quên mật khẩu: môi trường test không có SMTP nên mã trả về debug_code
@@ -102,7 +104,7 @@ describe('App khách: đặt đơn khớp với bộ điều phối và app th�
     ADMIN = await h.adminCookie();
 
     // Khách đăng ký bằng email, chưa có SĐT -> chưa đặt được
-    const reg = await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách Email', email: `e.${Date.now()}@test.vn`, password: '12345678' } });
+    const reg = await api('POST', '/api/customer/auth/register', { body: { full_name: 'Khách Email', email: `e.${Date.now()}@test.vn`, password: 'Khach2026' } });
     const t = reg.body.token;
     const [lat, lng] = off();
     const addr = await api('POST', '/api/customer/addresses', { token: t, body: { address_text: '1 Tràng Tiền', lat, lng } });
@@ -192,6 +194,23 @@ describe('App khách: đặt đơn khớp với bộ điều phối và app th�
 
     const pub = (await api('GET', `/api/customer/workers/${w.id}`, { token: t })).body;
     assert.equal(pub.level.name, 'Thợ Đồng');
+
+    // Xong việc: không nhận tiền mặt, còn đơn chưa trả thì chưa đặt đơn mới
+    status(await advance(w, oid, 'completed'), 200);
+    d = (await api('GET', `/api/customer/orders/${oid}`, { token: t })).body;
+    assert.equal(d.can_pay, true);
+    const cash = await api('POST', `/api/customer/orders/${oid}/payments`, { token: t, body: { method: 'cash' } });
+    status(cash, 400);
+    assert.match(cash.body.message, /không nhận tiền mặt/);
+    const blocked = await api('POST', '/api/customer/orders', { token: t, body: { service_id: C.SVC, address_id: addr.body.id } });
+    status(blocked, 400);
+    assert.match(blocked.body.message, new RegExp(`chưa thanh toán đơn ${created.body.code}`));
+    const pay = await api('POST', `/api/customer/orders/${oid}/payments`, { token: t, body: { method: 'momo' } });
+    status(pay, 201);
+    status(await api('POST', `/api/customer/payments/${pay.body.id}/sandbox-confirm`, { token: t }), 200);
+    d = (await api('GET', `/api/customer/orders/${oid}`, { token: t })).body;
+    assert.equal(d.can_pay, false);
+    status(await api('POST', '/api/customer/orders', { token: t, body: { service_id: C.SVC, address_id: addr.body.id } }), 201);
   });
 
   test('lịch hẹn hợp lệ được nhận và thợ huỷ trước khi tới thì đơn quay lại tìm thợ', async () => {

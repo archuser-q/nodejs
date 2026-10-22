@@ -24,7 +24,7 @@
  * Ràng buộc cứng (lọc trước khi chấm điểm):
  *   hồ sơ đã duyệt, tài khoản hoạt động, có kỹ năng đúng danh mục, trong bán kính tìm của cấu hình VÀ
  *   bán kính nhận việc của thợ, vị trí còn mới, đang bật nhận đơn (đơn đặt ngay: phải rảnh),
- *   không đang giữ offer khác, chưa từng được mời đơn này, ví không âm quá hạn mức, không trùng lịch.
+ *   không đang giữ offer khác, chưa từng được mời đơn này, không trùng lịch.
  *
  * Các thao tác điều phối chạy tuần tự nhờ khoá advisory của PostgreSQL (DISPATCH_LOCK_KEY), nên 2 đơn
  * không thể cùng "giành" 1 thợ, kể cả khi chạy nhiều tiến trình API.
@@ -47,7 +47,6 @@ import {
   commissionOf,
   conflictingWorkers,
   hasInflightInstantJob,
-  isWalletRestricted,
   refreshAvailability,
 } from '../worker/state.js';
 
@@ -152,7 +151,7 @@ async function filterEligible(db, order, candidates, when) {
   const ids = list.map((c) => Number(c.id));
   const { rows } = await sql(
     db,
-    `SELECT w.user_id AS id, w.wallet_balance,
+    `SELECT w.user_id AS id,
             EXISTS (SELECT 1 FROM order_offers f
                     WHERE f.worker_id = w.user_id AND f.status = 'offered' AND f.expires_at > NOW()) AS has_live_offer,
             EXISTS (SELECT 1 FROM order_offers f WHERE f.worker_id = w.user_id AND f.order_id = $2) AS offered_before
@@ -160,7 +159,7 @@ async function filterEligible(db, order, candidates, when) {
     [ids, order.id],
   );
   const blocked = new Set(
-    rows.filter((r) => r.has_live_offer || r.offered_before || isWalletRestricted(r.wallet_balance)).map((r) => Number(r.id)),
+    rows.filter((r) => r.has_live_offer || r.offered_before).map((r) => Number(r.id)),
   );
   // Đơn hẹn trước: lời mời ghi rõ giờ hẹn, thợ tự quyết; hệ thống chỉ chặn thợ đã có lịch trùng giờ
   const conflicts = await conflictingWorkers(db, ids.filter((id) => !blocked.has(id)), when, order.id);

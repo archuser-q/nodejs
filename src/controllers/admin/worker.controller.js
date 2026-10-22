@@ -1,6 +1,7 @@
 import * as workerService from '../../services/worker.service.js';
 import { AppError } from '../../utils/AppError.js';
 import { notify } from '../../services/customer/notify.service.js'; // [B] báo kết quả duyệt cho app thợ
+import { onVerificationRevoked } from '../../services/worker/profile.service.js'; // [B]
 
 const STATUSES = ['active', 'locked'];
 const VERIFICATIONS = ['pending', 'approved', 'rejected'];
@@ -30,6 +31,7 @@ export const review = async (req, res) => {
   if (status === 'rejected' && !note?.trim()) throw new AppError(400, 'Rejection reason is required');
 
   const worker = await workerService.reviewWorker(req.params.id, req.user.id, status, note?.trim() || null);
+  if (status === 'rejected') await onVerificationRevoked(worker.id); // [B] bỏ duyệt -> tắt nhận đơn, thu hồi lời mời
   // [B] Thông báo cho thợ (app thợ mở màn giấy tờ / hồ sơ khi bấm vào)
   await notify(worker.id, status === 'approved'
     ? { title: 'Hồ sơ đã được duyệt', body: 'Bạn có thể bật nhận đơn ngay bây giờ.', type: 'verification', data: { status } }

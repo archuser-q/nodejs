@@ -29,12 +29,6 @@ export const withdrawals = async (req, res) => {
   res.json({ ...(await finance.listWithdrawals(req.user.id, p)), page: p.page, pageSize: p.pageSize });
 };
 
-export const topup = async (req, res) => {
-  const amount = v.int(req.body?.amount, 'số tiền nạp', { min: 10_000, max: 10_000_000 });
-  const method = v.oneOf(req.body?.method ?? 'momo', ['momo', 'vnpay'], 'phương thức');
-  res.json(await finance.topup(req.user.id, amount, method));
-};
-
 export const reviews = async (req, res) => {
   const rating = req.query.rating ? v.int(req.query.rating, 'số sao', { min: 1, max: 5 }) : null;
   const p = v.paging(req.query);
