@@ -1,62 +1,36 @@
-import bcrypt from 'bcrypt';
 import { q as query, sql } from '../../config/db.js';
-import { env } from '../../config/env.js';
 import { AppError } from '../../utils/AppError.js';
-import { signToken } from '../../utils/jwt.js';
 import { USER_FIELDS } from '../../middlewares/requireCustomer.js';
 import { withTransaction } from './common.js';
 
-const issueToken = (user) => signToken({ sub: String(user.id), role: user.role }, env.mobileJwtExpiresIn);
+// Đăng ký / đăng nhập: services/customer/auth.service.js
 
-// ── Đăng ký / đăng nhập ─────────────────────────────────────────────────────
-
-export const register = async ({ fullName, phone, email, password }) => {
-  const { rows: dup } = await query(
-    'SELECT phone, email FROM users WHERE phone = $1 OR ($2::text IS NOT NULL AND email = $2)',
-    [phone, email],
-  );
-  if (dup.some((u) => u.phone === phone)) throw new AppError(409, 'Số điện thoại đã được đăng ký');
-  if (dup.length) throw new AppError(409, 'Email đã được sử dụng');
-
-  const hash = await bcrypt.hash(password, 10);
-  const { rows } = await query(
-    `INSERT INTO users (phone, email, password_hash, full_name, role, last_login_at)
-     VALUES ($1, $2, $3, $4, 'customer', NOW())
-     RETURNING ${USER_FIELDS}`,
-    [phone, email, hash, fullName],
-  );
-  return { token: issueToken(rows[0]), user: rows[0] };
-};
-
-export const login = async (identifier, password) => {
-  const { rows } = await query(
-    `SELECT ${USER_FIELDS}, password_hash FROM users WHERE phone = $1 OR email = $1 LIMIT 1`,
-    [identifier],
-  );
-  const user = rows[0];
-  const ok = user?.password_hash && (await bcrypt.compare(password, user.password_hash));
-  if (!ok) throw new AppError(401, 'Số điện thoại hoặc mật khẩu không đúng');
-  if (user.role !== 'customer') throw new AppError(403, 'Tài khoản này không phải tài khoản khách hàng');
-  if (user.status !== 'active') throw new AppError(403, 'Tài khoản đã bị khoá');
-
-  await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
-  const { password_hash, ...safeUser } = user;
-  return { token: issueToken(safeUser), user: safeUser };
-};
-
-export const updateProfile = async (userId, { fullName, email }) => {
+/** Cập nhật hồ sơ: chỉ đổi các trường được gửi (undefined = giữ nguyên) */
+export const updateProfile = async (userId, { fullName, email, phone, avatarUrl }) => {
   if (email) {
-    const { rows } = await query('SELECT 1 FROM users WHERE email = $1 AND id <> $2', [email, userId]);
+    const { rows } = await query('SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2', [email, userId]);
     if (rows.length) throw new AppError(409, 'Email đã được sử dụng');
   }
+  if (phone) {
+    const { rows } = await query('SELECT 1 FROM users WHERE phone = $1 AND id <> $2', [phone, userId]);
+    if (rows.length) throw new AppError(409, 'Số điện thoại đã được sử dụng');
+  }
+  const { rows: cur } = await query('SELECT email, phone FROM users WHERE id = $1', [userId]);
+  const nextEmail = email === undefined ? cur[0].email : email;
+  const nextPhone = phone === undefined ? cur[0].phone : phone;
+  if (!nextEmail && !nextPhone) throw new AppError(400, 'Tài khoản cần có ít nhất email hoặc số điện thoại');
+
   const { rows } = await query(
     `UPDATE users
      SET full_name = COALESCE($2, full_name),
          email = CASE WHEN $3::boolean THEN $4 ELSE email END,
+         phone = CASE WHEN $5::boolean THEN $6 ELSE phone END,
+         avatar_url = CASE WHEN $7::boolean THEN $8 ELSE avatar_url END,
          updated_at = NOW()
      WHERE id = $1
      RETURNING ${USER_FIELDS}`,
-    [userId, fullName ?? null, email !== undefined, email ?? null],
+    [userId, fullName ?? null, email !== undefined, email ?? null, phone !== undefined, phone ?? null,
+      avatarUrl !== undefined, avatarUrl ?? null],
   );
   return rows[0];
 };

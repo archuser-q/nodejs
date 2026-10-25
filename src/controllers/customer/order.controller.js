@@ -3,9 +3,13 @@ import * as interaction from '../../services/customer/interaction.service.js';
 import * as notifyService from '../../services/customer/notify.service.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertId, pagination } from '../../services/customer/common.js';
+import * as v from '../../utils/validate.js';
 
 const GROUPS = ['active', 'completed', 'cancelled'];
+<<<<<<< HEAD
 const MODES = ['instant', 'batch'];
+=======
+>>>>>>> origin/staging-customer-api
 // [B] Nền tảng không nhận tiền mặt: mọi đơn trả qua cổng thanh toán để thu hoa hồng và trả thợ minh bạch
 const METHODS = ['momo', 'vnpay'];
 
@@ -18,18 +22,53 @@ const text = (v, { label, max, required = true }) => {
 
 // ── Đơn hàng ────────────────────────────────────────────────────────────────
 
+/** Lịch hẹn phải cách hiện tại ít nhất ngần này phút (đặt gấp thì chọn "làm ngay") */
+const MIN_LEAD_MINUTES = 60;
+const MAX_IMAGES = 6;
+/**
+ * Khung giờ nhận lịch hẹn theo giờ VN, VD "7-21" = 07:00 đến 21:00. Đặt BOOKING_HOURS= (rỗng) để bỏ giới hạn.
+ * Chỉ áp dụng cho đơn hẹn giờ; đơn "làm ngay" (sự cố điện khẩn) đặt được bất cứ lúc nào.
+ */
+const BOOKING_HOURS = (() => {
+  const raw = process.env.BOOKING_HOURS ?? '7-21';
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(raw.trim());
+  return m ? { from: Number(m[1]), to: Number(m[2]) } : null;
+})();
+
+const vnHourMinute = (d) => {
+  const vn = new Date(d.getTime() + 7 * 3600_000);
+  return vn.getUTCHours() * 60 + vn.getUTCMinutes();
+};
+
 export const create = async (req, res) => {
   const b = req.body ?? {};
-  const matchingMode = b.matching_mode ?? 'instant';
-  if (!MODES.includes(matchingMode)) throw new AppError(400, 'Chế độ ghép thợ không hợp lệ');
+  // Khách không chọn chế độ ghép: hệ thống tự chọn theo cấu hình admin (trường matching_mode gửi lên bị bỏ qua)
+  if (!req.user.phone) {
+    throw new AppError(400, 'Vui lòng cập nhật số điện thoại trong Tài khoản để thợ liên hệ được trước khi đặt đơn');
+  }
 
   let scheduledAt = null;
   if (b.scheduled_at) {
     const t = new Date(b.scheduled_at);
     if (Number.isNaN(t.getTime())) throw new AppError(400, 'Giờ hẹn không hợp lệ');
-    if (t.getTime() < Date.now() - 60_000) throw new AppError(400, 'Giờ hẹn phải sau thời điểm hiện tại');
+    if (t.getTime() < Date.now() + MIN_LEAD_MINUTES * 60_000) {
+      throw new AppError(400, `Giờ hẹn phải sau thời điểm hiện tại ít nhất ${MIN_LEAD_MINUTES} phút. Cần thợ gấp thì chọn "Làm ngay"`);
+    }
     if (t.getTime() > Date.now() + 30 * 86400_000) throw new AppError(400, 'Chỉ đặt lịch trước tối đa 30 ngày');
+    if (BOOKING_HOURS) {
+      const m = vnHourMinute(t);
+      if (m < BOOKING_HOURS.from * 60 || m > BOOKING_HOURS.to * 60) {
+        throw new AppError(400, `Chỉ nhận lịch hẹn từ ${BOOKING_HOURS.from}:00 đến ${BOOKING_HOURS.to}:00`);
+      }
+    }
     scheduledAt = t.toISOString();
+  }
+
+  let imageUrls = [];
+  if (b.image_urls !== undefined && b.image_urls !== null) {
+    if (!Array.isArray(b.image_urls)) throw new AppError(400, 'Danh sách ảnh không hợp lệ');
+    if (b.image_urls.length > MAX_IMAGES) throw new AppError(400, `Gửi tối đa ${MAX_IMAGES} ảnh tình trạng`);
+    imageUrls = b.image_urls.map((u) => v.url(u, 'đường dẫn ảnh'));
   }
 
   const order = await orderService.createOrder(req.user.id, {
@@ -37,7 +76,7 @@ export const create = async (req, res) => {
     addressId: assertId(b.address_id, 'Địa chỉ'),
     description: text(b.description, { label: 'mô tả', max: 1000, required: false }),
     scheduledAt,
-    matchingMode,
+    imageUrls,
   });
   res.status(201).json(order);
 };
@@ -77,9 +116,13 @@ export const listMessages = async (req, res) => {
   res.json(await interaction.listMessages(req.user.id, assertId(req.params.id), { beforeId, limit }));
 };
 
+/** POST /orders/:id/messages { content?, image_url? } — gửi chữ, ảnh hoặc cả hai */
 export const sendMessage = async (req, res) => {
-  const content = text(req.body?.content, { label: 'nội dung', max: 1000 });
-  res.status(201).json(await interaction.sendMessage(req.user.id, assertId(req.params.id), content));
+  const b = req.body ?? {};
+  const content = text(b.content, { label: 'nội dung', max: 1000, required: false });
+  const imageUrl = b.image_url ? v.url(b.image_url, 'ảnh') : null;
+  if (!content && !imageUrl) throw new AppError(400, 'Vui lòng nhập nội dung hoặc chọn ảnh');
+  res.status(201).json(await interaction.sendMessage(req.user.id, assertId(req.params.id), content, imageUrl));
 };
 
 export const markMessagesRead = async (req, res) => {

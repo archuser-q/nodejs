@@ -3,7 +3,8 @@ import { AppError } from '../../utils/AppError.js';
 import {
   ACTIVE_STATUSES, CANCELLABLE_STATUSES, addHistory, getOwnedOrder, withTransaction,
 } from './common.js';
-import { dispatchOffers, getConfig, refreshOffers } from './dispatch.service.js';
+import { dispatchOffers, getConfig } from './dispatch.service.js';
+import { workerLevel } from '../worker/level.js';
 import { emitOrderUpdated, notify } from './notify.service.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { refreshAvailability } from '../worker/state.js'; // [B]
@@ -21,7 +22,7 @@ const ORDER_SELECT = `
          o.estimated_price, o.extra_amount, o.final_price,
          COALESCE(o.final_price, o.estimated_price + o.extra_amount) AS total_amount,
          o.created_at, o.accepted_at, o.started_at, o.completed_at, o.cancelled_at, o.cancel_reason,
-         o.warranty_until,
+         o.warranty_until, o.safety_checked_at,
          EXISTS (SELECT 1 FROM reviews r WHERE r.order_id = o.id) AS has_review,
          ${WORKER_BRIEF}
   FROM orders o
@@ -38,7 +39,7 @@ const GROUPS = {
 
 // ── Tạo đơn ─────────────────────────────────────────────────────────────────
 
-export const createOrder = async (customerId, { serviceId, addressId, description, scheduledAt, matchingMode }) => {
+export const createOrder = async (customerId, { serviceId, addressId, description, scheduledAt, imageUrls = [] }) => {
   const orderId = await withTransaction(async (db) => {
     const { rows: svc } = await sql(
       db,
@@ -82,14 +83,15 @@ export const createOrder = async (customerId, { serviceId, addressId, descriptio
       db,
       `WITH nid AS (SELECT nextval(pg_get_serial_sequence('orders', 'id')) AS id)
        INSERT INTO orders (id, code, customer_id, service_id, address_text, location, description,
-                           scheduled_at, status, matching_mode, matching_config_id, estimated_price)
+                           image_urls, scheduled_at, status, matching_config_id, estimated_price)
        SELECT nid.id,
               'TN' || to_char(NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYMMDD') || lpad(nid.id::text, 6, '0'),
-              $1, $2, $3, $4, $5, $6, 'matching', $7, $8, $9
+              $1, $2, $3, $4, $5, $6, $7, 'matching', $8, $9
        FROM nid
        RETURNING id`,
-      [customerId, serviceId, addr[0].address_text, addr[0].location, description, scheduledAt,
-        matchingMode, config.id, svc[0].base_price],
+      // matching_mode để mặc định: bộ điều phối ghi lại chế độ thực tế đã dùng (instant / batch)
+      [customerId, serviceId, addr[0].address_text, addr[0].location, description, imageUrls, scheduledAt,
+        config.id, svc[0].base_price],
     );
     const id = rows[0].id;
     await addHistory(db, id, null, 'pending', customerId, 'Khách tạo đơn');
@@ -121,14 +123,11 @@ export const listOrders = async (customerId, { group, pageSize, offset }) => {
 
 export const getOrderDetail = async (customerId, id) => {
   const { rows } = await q(`${ORDER_SELECT} WHERE o.id = $1 AND o.customer_id = $2`, [id, customerId]);
-  let order = rows[0];
+  const order = rows[0];
   if (!order) throw new AppError(404, 'Không tìm thấy đơn hàng');
+  // Chỉ đọc: hết hạn lời mời, gửi đợt mới, huỷ đơn quá hạn... do bộ điều phối chạy nền (thành viên B) lo
 
-  if (order.status === 'matching') {
-    await refreshOffers(id).catch((err) => console.error('refreshOffers failed', err));
-  }
-
-  const [history, quotes, payments, review, offers, warrantyClaim] = await Promise.all([
+  const [history, quotes, payments, review, offers, warrantyClaim, photos, dispatch, cert] = await Promise.all([
     q(
       `SELECT from_status, to_status, note, created_at FROM order_status_history
        WHERE order_id = $1 ORDER BY created_at, id`,
@@ -155,6 +154,21 @@ export const getOrderDetail = async (customerId, id) => {
        WHERE order_id = $1 AND type = 'warranty' ORDER BY created_at DESC LIMIT 1`,
       [id],
     ),
+    // Ảnh trước / sau khi sửa do thợ chụp (app thợ, bảng order_photos)
+    q('SELECT id, kind, url, created_at FROM order_photos WHERE order_id = $1 ORDER BY created_at, id', [id]),
+    // Tiến độ tìm thợ của bộ điều phối (chỉ có khi đơn đang trong hàng đợi)
+    q(
+      `SELECT mode, rounds, offers_sent, last_candidates, deadline_at, last_attempt_at
+       FROM order_dispatches WHERE order_id = $1`,
+      [id],
+    ),
+    order.worker
+      ? q(
+          `SELECT EXISTS (SELECT 1 FROM worker_documents
+                          WHERE worker_id = $1 AND doc_type = 'certificate' AND status = 'approved') AS has`,
+          [order.worker.id],
+        )
+      : null,
   ]);
 
   const paidOk = payments.rows.some((p) => p.status === 'success');
@@ -162,9 +176,20 @@ export const getOrderDetail = async (customerId, id) => {
   const claimOpen = claim && ['open', 'processing'].includes(claim.status);
   const warrantyActive = !!order.warranty_until && new Date(order.warranty_until) > new Date();
 
+  const worker = order.worker
+    ? {
+        ...order.worker,
+        level: workerLevel(order.worker.total_jobs, order.worker.rating_count ? order.worker.rating_avg : null),
+        has_certificate: !!cert?.rows[0]?.has,
+      }
+    : null;
+
   return {
     ...order,
+    worker,
     offers: offers.rows[0],
+    searching: order.status === 'matching' ? (dispatch.rows[0] ?? null) : null,
+    photos: photos.rows,
     history: history.rows,
     extra_quotes: quotes.rows,
     payments: payments.rows,

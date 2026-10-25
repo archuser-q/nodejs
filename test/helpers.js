@@ -86,8 +86,10 @@ export async function adminCookie() {
 
 // ── Khách hàng (API của app khách) ──────────────────────────────────────────
 export async function customer(name = 'Nguyễn Thị Hoa', [lat, lng] = off()) {
-  const r = await api('POST', '/api/customer/auth/register', { body: { full_name: name, phone: phone(), password: '12345678' } });
+  const r = await api('POST', '/api/customer/auth/register', { body: { full_name: name, phone: phone(), password: WORKER_PW } });
   if (r.status !== 201) throw new Error(JSON.stringify(r.body));
+  // Đăng ký phải dùng mật khẩu hợp lệ; sau đó đặt lại '12345678' như tài khoản demo để các bài cũ dùng tiếp
+  await sql('UPDATE users SET password_hash = $2 WHERE id = $1', [r.body.user.id, await bcrypt.hash('12345678', 4)]);
   const token = r.body.token;
   const a = await api('POST', '/api/customer/addresses', { token, body: { label: 'Nhà', address_text: '12 Ngõ Test, Hà Nội', lat, lng } });
   return { id: r.body.user.id, token, addressId: a.body.id };
