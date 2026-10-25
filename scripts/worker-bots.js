@@ -3,7 +3,7 @@
  *
  * Mỗi bot đăng nhập và gọi đúng API của app thợ, nên đơn đi qua luồng thật và app khách thấy realtime:
  * nhận offer -> nhận / từ chối -> di chuyển tới khách (gửi vị trí dần dần) -> đến nơi -> chụp ảnh ->
- * xác nhận an toàn -> sửa -> hoàn thành -> xác nhận tiền mặt (nếu khách chọn tiền mặt).
+ * xác nhận an toàn -> sửa -> hoàn thành (chờ khách thanh toán qua app).
  *
  *   npm run bots                       # 8 bot quanh Hồ Gươm
  *   npm run bots -- --count 12 --accept 0.7 --speed 300 --tick 2
@@ -98,13 +98,7 @@ async function progressJobs(bot) {
         if (detail.has_pending_quote) continue; // chờ khách duyệt báo giá
         if (detail.needs_after_photo) await call('POST', `/api/worker/orders/${job.id}/photos`, { token: bot.token, body: { kind: 'after', urls: [PHOTO('after')] } });
         await step('completed');
-        log(bot, `HOÀN THÀNH đơn ${job.code}`);
-      } else if (job.status === 'completed' && !job.paid) {
-        const detail = await call('GET', `/api/worker/orders/${job.id}`, { token: bot.token });
-        if (detail.customer_chose_cash) {
-          await call('POST', `/api/worker/orders/${job.id}/confirm-cash`, { token: bot.token });
-          log(bot, `đã thu tiền mặt đơn ${job.code}`);
-        }
+        log(bot, `HOÀN THÀNH đơn ${job.code} (chờ khách thanh toán qua app)`);
       }
     } catch (err) {
       log(bot, `đơn ${job.code}: ${err.message}`);

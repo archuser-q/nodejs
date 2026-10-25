@@ -118,9 +118,12 @@ export async function upload(token) {
   return r.body.url;
 }
 
+/** Mật khẩu thợ phải ≥ 8 ký tự, có chữ và số, không nằm trong danh sách quá phổ biến */
+export const WORKER_PW = 'thodien2026';
+
 export async function registerWorker(name = 'Thợ Test') {
   const email = `tho.${uniq()}@test.vn`;
-  const r = await api('POST', '/api/worker/auth/register', { body: { full_name: name, email, password: '12345678' } });
+  const r = await api('POST', '/api/worker/auth/register', { body: { full_name: name, email, password: WORKER_PW } });
   if (r.status !== 201) throw new Error(JSON.stringify(r.body));
   return { id: r.body.user.id, token: r.body.token, email };
 }
@@ -131,7 +134,7 @@ export async function readyWorker(cookie, { name = 'Thợ', at = off(), trust = 
   const t = w.token;
   await api('PATCH', '/api/worker/profile', { token: t, body: { phone: phone(), experience_years: years } });
   const cats = categories ?? (await sql("SELECT id FROM service_categories WHERE name = 'Sửa chữa điện'")).map((x) => x.id);
-  const s = await api('PUT', '/api/worker/skills', { token: t, body: { skills: cats.map((id) => ({ category_id: id, years })) } });
+  const s = await api('PUT', '/api/worker/skills', { token: t, body: { category_ids: cats } });
   if (s.status !== 200) throw new Error(JSON.stringify(s.body));
   for (const type of ['id_card_front', 'id_card_back', 'portrait']) {
     const r = await api('POST', '/api/worker/documents', { token: t, body: { doc_type: type, file_url: await upload(t) } });

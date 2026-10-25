@@ -64,10 +64,24 @@ export function phone(v, { required = true } = {}) {
   return s;
 }
 
+/**
+ * Mật khẩu: 8–72 ký tự, có cả chữ và số, không nằm trong danh sách mật khẩu quá phổ biến.
+ * Không bắt chữ hoa / ký tự đặc biệt (theo NIST SP 800-63B: luật "phức tạp" làm người dùng đặt mật khẩu
+ * dễ đoán theo mẫu và hay quên; độ dài + chặn mật khẩu phổ biến hiệu quả hơn).
+ */
+const COMMON_PASSWORDS = new Set([
+  '12345678', '123456789', '1234567890', '11111111', '00000000', '88888888', '12341234', '87654321',
+  'password', 'password1', 'password123', 'matkhau', 'matkhau1', 'matkhau123', 'abc12345', 'abcd1234',
+  'qwerty123', 'qwertyui', 'iloveyou', 'admin123', 'thonhanh', 'thonhanh1', 'thonhanh123', '123456aa',
+  'a1234567', '1234567a', 'aa123456', '1qaz2wsx',
+]);
+
 export function password(v, label = 'mật khẩu') {
   const s = typeof v === 'string' ? v : '';
   if (s.length < 8) throw bad(`${cap(label)} tối thiểu 8 ký tự`);
   if (s.length > 72) throw bad(`${cap(label)} tối đa 72 ký tự`);
+  if (!/\p{L}/u.test(s) || !/\d/.test(s)) throw bad(`${cap(label)} phải có cả chữ và số`);
+  if (COMMON_PASSWORDS.has(s.toLowerCase())) throw bad(`${cap(label)} quá phổ biến, dễ bị đoán. Hãy chọn mật khẩu khác`);
   return s;
 }
 

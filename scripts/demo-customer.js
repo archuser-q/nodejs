@@ -6,8 +6,8 @@
  *   npm run demo:customer -- order --near tho2@thonhanh.vn --dist 1500
  *   npm run demo:customer -- order --after 90            # hẹn lịch sau 90 phút
  *   npm run demo:customer -- quote <đơn>                 # duyệt báo giá phát sinh đang chờ (--reject để từ chối)
- *   npm run demo:customer -- pay <đơn> --method cash     # khách chọn tiền mặt (thợ bấm "Đã thu tiền")
- *   npm run demo:customer -- pay <đơn> --method momo     # thanh toán online sandbox -> cộng ví thợ
+ *   npm run demo:customer -- pay <đơn>                   # khách trả qua MoMo (sandbox) -> ví thợ cộng phần thực nhận
+ *   npm run demo:customer -- pay <đơn> --method vnpay    # hoặc VNPay. Nền tảng không nhận tiền mặt
  *   npm run demo:customer -- review <đơn> --stars 5 --comment "Thợ làm nhanh"
  *   npm run demo:customer -- cancel <đơn>
  *   npm run demo:customer -- show <đơn>
@@ -128,17 +128,19 @@ async function cmdQuote(a) {
   console.log(`${a.reject ? 'Đã từ chối' : 'Đã đồng ý'} · tổng đơn mới: ${money(res.total_amount)}`);
 }
 
+/** Khách trả 1 đơn qua cổng thanh toán sandbox (tạo giao dịch + xác nhận thành công) */
+async function payOrder(token, orderId, method) {
+  const p = await call('POST', `/api/customer/orders/${orderId}/payments`, { token, body: { method } });
+  await call('POST', `/api/customer/payments/${p.id}/sandbox-confirm`, { token });
+  return p;
+}
+
 async function cmdPay(a) {
+  if (a.method === 'cash') die('Nền tảng không nhận tiền mặt. Dùng --method momo hoặc --method vnpay');
   const o = await findOrder(a._[1]);
-  const token = await customerToken(o);
-  const p = await call('POST', `/api/customer/orders/${o.id}/payments`, { token, body: { method: a.method } });
+  const p = await payOrder(await customerToken(o), o.id, a.method);
   console.log(`  Số tiền: ${money(p.amount)} · phương thức: ${a.method}`);
-  if (a.method !== 'cash') {
-    await call('POST', `/api/customer/payments/${p.id}/sandbox-confirm`, { token });
-    console.log('  (sandbox) Thanh toán thành công -> đã cộng tiền thực nhận vào ví thợ');
-  } else {
-    console.log('  Thợ sẽ thấy "Khách chọn trả tiền mặt" và nút "Đã thu tiền mặt" trong chi tiết đơn');
-  }
+  console.log('  (sandbox) Thanh toán thành công -> đã cộng tiền thực nhận vào ví thợ');
 }
 
 async function cmdReview(a) {
@@ -182,6 +184,16 @@ async function cmdRush(a) {
     const c = customers[i % customers.length];
     try {
       const token = await login('customer', c.email || c.phone);
+      // Khách còn đơn đã xong mà chưa trả thì không đặt được đơn mới -> giả lập khách trả nốt (MoMo sandbox)
+      const { rows: unpaid } = await q(
+        `SELECT o.id, o.code FROM orders o WHERE o.customer_id = $1 AND o.status = 'completed'
+           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND p.status = 'success')`,
+        [c.id],
+      );
+      for (const u of unpaid) {
+        await payOrder(token, u.id, 'momo');
+        console.log(`  ${c.full_name} thanh toán đơn cũ ${u.code} (MoMo sandbox)`);
+      }
       const [lat, lng] = offset(Number(a.lat), Number(a.lng), 200 + Math.random() * (Number(a.radius) * 1000 - 200));
       const addressId = await demoAddress(token, lat, lng);
       const svc = pick(services);
@@ -198,7 +210,7 @@ async function cmdRush(a) {
 const COMMANDS = { order: cmdOrder, quote: cmdQuote, pay: cmdPay, review: cmdReview, cancel: cmdCancel, show: cmdShow, rush: cmdRush };
 
 const args = parseArgs(process.argv.slice(2), {
-  near: 'tho@thonhanh.vn', dist: 700, after: 0, customer: DEMO_CUSTOMER, method: 'cash', stars: 5,
+  near: 'tho@thonhanh.vn', dist: 700, after: 0, customer: DEMO_CUSTOMER, method: 'momo', stars: 5,
   comment: 'Thợ đến đúng giờ, làm cẩn thận, giá hợp lý.', reason: 'Đổi kế hoạch', count: 10,
   lat: HOAN_KIEM[0], lng: HOAN_KIEM[1], radius: 3,
 });

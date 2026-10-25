@@ -5,7 +5,6 @@ import { pool, q, sql } from '../../config/db.js';
 import { settings } from '../../config/worker.js';
 import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
-import { money } from '../../utils/vn.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { USER_FIELDS } from '../../middlewares/requireCustomer.js';
 import { notify } from '../customer/notify.service.js';
@@ -13,7 +12,7 @@ import { getConfig } from '../matching/config.js';
 import { withdrawWorkerOffers } from '../matching/dispatch.service.js';
 import { getBank, incomeBetween } from './finance.service.js';
 import { workerLevel } from './level.js';
-import { INFLIGHT_STATUSES, OPEN_JOB_STATUSES, availabilityOf, isWalletRestricted, refreshAvailability } from './state.js';
+import { INFLIGHT_STATUSES, OPEN_JOB_STATUSES, availabilityOf, refreshAvailability } from './state.js';
 import { DAY, vnDayStart } from './time.js';
 
 export const REQUIRED_DOCS = ['id_card_front', 'id_card_back', 'portrait'];
@@ -96,10 +95,14 @@ function onboardingOf(user, w, skillsCount, docs) {
     const label = DOC_LABEL[t].startsWith('CCCD') ? DOC_LABEL[t] : DOC_LABEL[t][0].toLowerCase() + DOC_LABEL[t].slice(1);
     missing.push(`${latest[t]?.status === 'rejected' ? 'Tải lại' : 'Tải lên'} ${label}`);
   }
+  // Lý do chung của lần từ chối hồ sơ luôn hiện 1 lần ở đầu (kể cả khi giấy tờ không bị đánh dấu riêng).
+  // Admin từ chối cả hồ sơ thì mọi giấy tờ cùng mang lý do đó -> không lặp lại theo từng ảnh,
+  // chỉ liệt kê thêm ảnh nào có lý do riêng.
+  const note = w.verification_status === 'rejected' ? w.verification_note?.trim() || null : null;
   const reasons = Object.values(latest)
-    .filter((d) => d.status === 'rejected' && d.reject_reason)
+    .filter((d) => d.status === 'rejected' && d.reject_reason && d.reject_reason.trim() !== note)
     .map((d) => `${DOC_LABEL[d.doc_type] ?? d.doc_type}: ${d.reject_reason}`);
-  if (w.verification_status === 'rejected' && w.verification_note && !reasons.length) reasons.push(w.verification_note);
+  if (note) reasons.unshift(`Hồ sơ bị từ chối: ${note}`);
 
   return {
     verification_status: w.verification_status,
@@ -113,15 +116,30 @@ function onboardingOf(user, w, skillsCount, docs) {
   };
 }
 
-/** Lý do thợ chưa thể bật nhận đơn (rỗng = được bật) */
+/**
+ * Trạng thái hồ sơ xác minh theo góc nhìn của thợ:
+ *  approved · pending (đã gửi, chờ admin) · rejected (bị từ chối, sửa rồi gửi lại) · not_submitted (chưa gửi)
+ */
+export const reviewStateOf = (w) =>
+  w.verification_status === 'approved'
+    ? 'approved'
+    : w.verification_status === 'rejected'
+      ? 'rejected'
+      : w.submitted_at
+        ? 'pending'
+        : 'not_submitted';
+
+/** Lý do thợ chưa thể bật nhận đơn (rỗng = được bật). Câu đầu tiên là câu app hiển thị khi bấm bật nhận đơn. */
 function blockersOf(user, w, skillsCount) {
   const out = [];
-  if (w.verification_status !== 'approved') out.push('Hồ sơ chưa được duyệt');
+  const state = reviewStateOf(w);
+  if (state === 'not_submitted') out.push('Bạn chưa gửi hồ sơ xác minh. Hãy nộp giấy tờ (CCCD, ảnh chân dung) để được duyệt và nhận việc');
+  if (state === 'pending') out.push('Hồ sơ của bạn đang chờ quản trị viên duyệt. Bạn sẽ nhận được thông báo khi có kết quả');
+  if (state === 'rejected') {
+    out.push(`Hồ sơ chưa được duyệt${w.verification_note ? `: ${w.verification_note}` : ''}. Hãy cập nhật giấy tờ rồi gửi lại`);
+  }
   if (!user.phone) out.push('Chưa có số điện thoại liên hệ');
   if (!skillsCount) out.push('Chưa chọn nhóm dịch vụ nhận làm');
-  if (isWalletRestricted(w.wallet_balance)) {
-    out.push(`Ví đang âm quá ${money(settings.walletDebtLimit)}, hãy nạp tiền để tiếp tục nhận đơn`);
-  }
   return out;
 }
 
@@ -132,6 +150,7 @@ const profileOut = (w) => ({
   availability: availabilityOf(w),
   verification_status: w.verification_status,
   verification_note: w.verification_note,
+  review_state: reviewStateOf(w),
   submitted_at: w.submitted_at,
   trust_score: w.trust_score,
   rating_avg: ratingOf(w),
@@ -161,7 +180,6 @@ export async function me(userId) {
     settings: {
       commission_rate: settings.commissionRate,
       min_withdrawal: settings.minWithdrawal,
-      wallet_debt_limit: settings.walletDebtLimit,
       location_max_age_minutes: settings.locationMaxAgeMinutes,
     },
   };
@@ -194,24 +212,27 @@ export async function updateProfile(userId, f) {
        WHERE user_id = $1`,
       [userId, f.bio !== undefined, f.bio ?? null, f.experience_years ?? null, f.service_radius_km ?? null],
     );
+    // Số năm kinh nghiệm là con số chung, áp dụng cho mọi nhóm dịch vụ đã chọn (tiêu chí kỹ năng khi ghép cặp)
+    if (f.experience_years !== undefined && f.experience_years !== null) {
+      await sql(db, 'UPDATE worker_skills SET years = $2 WHERE worker_id = $1', [userId, f.experience_years]);
+    }
   });
   return me(userId);
 }
 
-/** Chọn nhóm dịch vụ (danh mục) nhận làm + số năm kinh nghiệm từng nhóm (tiêu chí s_skill của ghép cặp) */
-export async function setSkills(userId, skills) {
-  const ids = [...new Set(skills.map((s) => s.category_id))];
+/**
+ * Chọn nhóm dịch vụ (danh mục) nhận làm. Số năm kinh nghiệm ở mỗi nhóm = số năm kinh nghiệm chung của thợ
+ * (workers.experience_years) -> cột worker_skills.years mà hàm điểm ghép cặp (tiêu chí kỹ năng) đang đọc.
+ */
+export async function setSkills(userId, categoryIds) {
+  const ids = [...new Set(categoryIds)];
   const { rows } = await q('SELECT id FROM service_categories WHERE id = ANY($1::int[]) AND is_active', [ids]);
   if (rows.length !== ids.length) throw new AppError(400, 'Có nhóm dịch vụ không tồn tại hoặc đã ngừng');
   await transaction(async (db) => {
-    await getWorker(db, userId);
+    const w = await getWorker(db, userId);
     await sql(db, 'DELETE FROM worker_skills WHERE worker_id = $1', [userId]);
-    for (const s of skills) {
-      await sql(
-        db,
-        'INSERT INTO worker_skills (worker_id, category_id, years) VALUES ($1, $2, $3) ON CONFLICT (worker_id, category_id) DO UPDATE SET years = EXCLUDED.years',
-        [userId, s.category_id, s.years],
-      );
+    for (const id of ids) {
+      await sql(db, 'INSERT INTO worker_skills (worker_id, category_id, years) VALUES ($1, $2, $3)', [userId, id, w.experience_years]);
     }
   });
   return skillsOf(pool, userId);
@@ -394,6 +415,18 @@ export async function setAvailability(userId, online, coords) {
   });
 }
 
+/**
+ * Admin bỏ duyệt / từ chối hồ sơ: tắt nhận đơn và thu hồi lời mời đang chờ, để app không còn
+ * hiện "Đang nhận đơn" với một thợ đã bị chặn (bộ ghép vốn đã bỏ qua thợ chưa duyệt).
+ * Việc đang làm dở (nếu có) vẫn giữ để thợ làm nốt với khách.
+ */
+export async function onVerificationRevoked(userId) {
+  return transaction(async (db, after) => {
+    await sql(db, 'UPDATE workers SET is_online = FALSE, updated_at = NOW() WHERE user_id = $1', [userId]);
+    await withdrawWorkerOffers(db, after, userId);
+  });
+}
+
 // ── Trang chủ ───────────────────────────────────────────────────────────────
 
 export async function home(userId, { currentOffer, jobItems }) {
@@ -427,6 +460,8 @@ export async function home(userId, { currentOffer, jobItems }) {
   return {
     availability: availabilityOf(w),
     verification_status: w.verification_status,
+    verification_note: w.verification_note,
+    review_state: reviewStateOf(w),
     can_go_online: !problems.length,
     blockers: problems,
     location_fresh: isLocationFresh(w),
@@ -436,7 +471,6 @@ export async function home(userId, { currentOffer, jobItems }) {
     rating_count: w.rating_count,
     trust_score: w.trust_score,
     wallet_balance: w.wallet_balance,
-    wallet_restricted: isWalletRestricted(w.wallet_balance),
     current_offer: offer,
     active_job: active ? items[0] : null,
     upcoming: active ? items.slice(1) : items,

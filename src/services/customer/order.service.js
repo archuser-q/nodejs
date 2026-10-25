@@ -62,6 +62,19 @@ export const createOrder = async (customerId, { serviceId, addressId, descriptio
     );
     if (active[0].n >= 5) throw new AppError(400, 'Bạn đang có quá nhiều đơn chưa hoàn thành');
 
+    // [B] Trả tiền qua app sau khi thợ làm xong: còn đơn hoàn thành chưa thanh toán thì chưa đặt đơn mới
+    const { rows: unpaid } = await sql(
+      db,
+      `SELECT o.code FROM orders o
+       WHERE o.customer_id = $1 AND o.status = 'completed'
+         AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id AND p.status = 'success')
+       ORDER BY o.completed_at LIMIT 1`,
+      [customerId],
+    );
+    if (unpaid[0]) {
+      throw new AppError(400, `Bạn chưa thanh toán đơn ${unpaid[0].code}. Vui lòng thanh toán trước khi đặt đơn mới`);
+    }
+
     const config = await getConfig(db);
 
     // Mã đơn dạng TN2610170000123 (ngày theo giờ VN + id)
@@ -145,7 +158,6 @@ export const getOrderDetail = async (customerId, id) => {
   ]);
 
   const paidOk = payments.rows.some((p) => p.status === 'success');
-  const cashPending = payments.rows.some((p) => p.status === 'pending' && p.method === 'cash');
   const claim = warrantyClaim.rows[0] ?? null;
   const claimOpen = claim && ['open', 'processing'].includes(claim.status);
   const warrantyActive = !!order.warranty_until && new Date(order.warranty_until) > new Date();
@@ -161,7 +173,7 @@ export const getOrderDetail = async (customerId, id) => {
       ? { until: order.warranty_until, active: warrantyActive, claim_status: claim?.status ?? null }
       : null,
     can_cancel: CANCELLABLE_STATUSES.includes(order.status),
-    can_pay: order.status === 'completed' && !paidOk && !cashPending,
+    can_pay: order.status === 'completed' && !paidOk, // [B] không còn chờ thợ xác nhận tiền mặt
     can_review: order.status === 'completed' && !order.has_review && !!order.worker,
     can_claim_warranty: order.status === 'completed' && warrantyActive && !claimOpen,
     can_complain: !!order.worker && order.status !== 'cancelled',

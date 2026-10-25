@@ -184,12 +184,13 @@ async function ensureWorker(db, media, w) {
       [id, t, media[t], status],
     );
   }
-  for (const [cat, years] of w.skills) {
+  // Số năm kinh nghiệm là con số chung, áp dụng cho mọi nhóm dịch vụ thợ nhận làm
+  for (const cat of w.skills) {
     await sql(
       db,
       `INSERT INTO worker_skills (worker_id, category_id, years) SELECT $1, id, $3 FROM service_categories WHERE name = $2
        ON CONFLICT DO NOTHING`,
-      [id, cat, years],
+      [id, cat, w.exp],
     );
   }
   if (w.approved) {
@@ -331,7 +332,7 @@ async function seedHistory(db, media, workerId, { days, perDay, seed, todayJobs 
     const day = today - i * 86_400_000;
     const isToday = i === 0;
     if (vnWeekday(day) === 6 && !isToday) {
-      // Chủ nhật nghỉ: rút tiền về ngân hàng (ví dương) hoặc nạp bù (ví âm vì hoa hồng đơn tiền mặt)
+      // Chủ nhật nghỉ: rút tiền trong ví về ngân hàng (mọi đơn trả online nên ví luôn dương)
       const { rows: b } = await sql(db, 'SELECT wallet_balance FROM workers WHERE user_id = $1', [workerId]);
       const balance = b[0].wallet_balance;
       if (bank && balance >= 600_000) {
@@ -344,8 +345,6 @@ async function seedHistory(db, media, workerId, { days, perDay, seed, todayJobs 
           [workerId, amount, bank.bank_name, bank.account_number, bank.account_holder, `SANDBOX-WD-${r.hex(10)}`, when],
         );
         await addWalletTxn(db, { workerId, type: 'withdraw', amount: -amount, withdrawalId: wd[0].id, note: `Rút tiền về ${bank.bank_name} ****${bank.account_number.slice(-4)}`, at: when });
-      } else if (balance < -250_000) {
-        await addWalletTxn(db, { workerId, type: 'topup', amount: 300_000, note: 'Nạp tiền vào ví qua MoMo (sandbox)', at: at(day, 19 * 60 + r.int(0, 50)) });
       }
       continue;
     }
@@ -406,13 +405,13 @@ async function seedHistory(db, media, workerId, { days, perDay, seed, todayJobs 
           [o.id, workerId, quote[0], quote[1], new Date(working + 8 * MIN), new Date(working + 10 * MIN)],
         );
       }
-      const method = r.weighted(['cash', 'momo', 'vnpay'], [55, 30, 15]);
+      const method = r.weighted(['momo', 'vnpay'], [65, 35]); // không nhận tiền mặt
       const paidAt = new Date(finished + r.int(2, 9) * MIN);
       await sql(
         db,
         `INSERT INTO payments (order_id, method, amount, status, provider_txn_id, created_at, paid_at)
          VALUES ($1, $2, $3, 'success', $4, $5, $6)`,
-        [o.id, method, estimated + extra, method === 'cash' ? null : `SANDBOX-${method.toUpperCase()}-${r.hex(10)}`, new Date(finished + 2 * MIN), paidAt],
+        [o.id, method, estimated + extra, `SANDBOX-${method.toUpperCase()}-${r.hex(10)}`, new Date(finished + 2 * MIN), paidAt],
       );
       await recordPaidOrder(db, o.id); // đúng hàm nghiệp vụ hệ thống dùng khi khách thanh toán
       if (now - finished <= 10 * 86_400_000) {
@@ -526,16 +525,16 @@ export async function seedDemo() {
     const tho = await ensureWorker(client, media, {
       email: 'tho@thonhanh.vn', phone: '0987000001', name: 'Trần Minh Đức', approved: true, lat: lat + 0.006, lng: lng + 0.004,
       trust: 0.92, exp: 8, bio: 'Thợ điện dân dụng 8 năm, chuyên sửa chập điện, thay aptomat, lắp đèn.',
-      skills: [['Sửa chữa điện', 8], ['Lắp đặt thiết bị điện', 8], ['Đồ điện gia dụng', 5]],
+      skills: ['Sửa chữa điện', 'Lắp đặt thiết bị điện', 'Đồ điện gia dụng'],
     });
     const tho2 = await ensureWorker(client, media, {
       email: 'tho2@thonhanh.vn', phone: '0987000002', name: 'Nguyễn Văn Bình', approved: true, lat: lat - 0.01, lng: lng + 0.008,
       trust: 0.85, exp: 5, bio: 'Lắp đặt điện nhà mới, đi dây âm tường, tủ điện.', bank: 'Techcombank',
-      skills: [['Đi dây & tủ điện', 5], ['Lắp đặt thiết bị điện', 5], ['Sửa chữa điện', 3]],
+      skills: ['Đi dây & tủ điện', 'Lắp đặt thiết bị điện', 'Sửa chữa điện'],
     });
     await ensureWorker(client, media, {
       email: 'tho.moi@thonhanh.vn', phone: '0987000003', name: 'Lê Quang Minh', approved: false, lat: lat + 0.012, lng: lng - 0.006,
-      trust: 0, exp: 2, bio: 'Thợ mới đăng ký.', skills: [['Sửa chữa điện', 2], ['Lắp đặt thiết bị điện', 1]],
+      trust: 0, exp: 2, bio: 'Thợ mới đăng ký.', skills: ['Sửa chữa điện', 'Lắp đặt thiết bị điện'],
     });
 
     // Thợ ảo cho script bot: rải trong 3 km quanh Hồ Gươm
@@ -545,10 +544,10 @@ export async function seedDemo() {
     for (let i = 1; i <= 12; i++) {
       const [blat, blng] = randomAround(r, HOAN_KIEM, 3);
       // Thợ ảo nào cũng sửa chữa điện; thêm nhóm khác theo lượt để có cả thợ chuyên / thợ đa năng
-      const skills = [['Sửa chữa điện', r.int(1, 12)]];
-      if (i % 2 === 0) skills.push(['Lắp đặt thiết bị điện', r.int(1, 10)]);
-      if (i % 3 === 0) skills.push(['Đồ điện gia dụng', r.int(1, 8)]);
-      if (i % 4 === 0) skills.push(['Đi dây & tủ điện', r.int(1, 8)]);
+      const skills = ['Sửa chữa điện'];
+      if (i % 2 === 0) skills.push('Lắp đặt thiết bị điện');
+      if (i % 3 === 0) skills.push('Đồ điện gia dụng');
+      if (i % 4 === 0) skills.push('Đi dây & tủ điện');
       await ensureWorker(client, media, {
         email: `tho.ao${String(i).padStart(2, '0')}@thonhanh.vn`, phone: `09860000${String(i).padStart(2, '0')}`,
         name: `${LAST[i % LAST.length]} Văn ${FIRST[i - 1]}`, approved: true, lat: blat, lng: blng,

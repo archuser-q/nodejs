@@ -30,13 +30,13 @@ npm run simulate -- <mã đơn> accept|on_the_way|move|arrived|in_progress|quote
 | Địa chỉ | `GET /addresses` · `POST /addresses` `{ label?, address_text, lat, lng, is_default? }` | địa chỉ đầu tiên tự làm mặc định |
 | | `PATCH /addresses/:id` · `DELETE /addresses/:id` | |
 | Danh mục | `GET /catalog/categories` · `GET /catalog/services?category_id=&search=` | không cần đăng nhập |
-| Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, matching_mode? }` | tạo đơn `matching` + gửi đề xuất cho 5 thợ (Weighted Scoring) |
+| Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, matching_mode? }` | tạo đơn `matching`, bộ điều phối của B ghép thợ (xem `docs/MATCHING.md`). **[B]** Còn đơn đã xong mà chưa thanh toán → 400 "Bạn chưa thanh toán đơn ..." |
 | | `GET /orders?group=active\|completed\|cancelled` · `GET /orders/:id` | chi tiết kèm history, extra_quotes, payments, review, warranty, can_* |
 | | `POST /orders/:id/cancel` `{ reason }` | chỉ khi `pending/matching/accepted` |
 | | `GET /orders/:id/tracking` | vị trí thợ (khi đơn đang chạy) |
 | | `POST /orders/:id/quotes/:quoteId/approve` · `.../reject` | báo giá phát sinh |
 | Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content }` · `POST /orders/:id/messages/read` | |
-| Thanh toán | `POST /orders/:id/payments` `{ method: cash\|momo\|vnpay }` | chỉ khi đơn `completed` |
+| Thanh toán | `POST /orders/:id/payments` `{ method: momo\|vnpay }` | chỉ khi đơn `completed`. **[B]** Không nhận tiền mặt nữa: `cash` → 400 "Thợ Nhanh không nhận tiền mặt..." |
 | | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production |
 | | `GET /payments` | lịch sử giao dịch |
 | Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật rating_avg/rating_count của thợ |
