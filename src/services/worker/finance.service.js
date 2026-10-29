@@ -9,12 +9,13 @@
  */
 import crypto from 'crypto';
 import { pool, q, sql } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
 import { givenName, money } from '../../utils/vn.js';
-import { notify } from '../customer/notify.service.js';
+import { notify } from '../shared/notify.service.js';
 import { commissionOf } from './state.js';
+import { explainTrust } from '../trust/trust.service.js';
 import { DAY, vnDayOfMonth, vnDayStart, vnKey, vnMonthStart, vnWeekStart, vnWeekday } from './time.js';
 
 const PAYMENT_LABEL = { momo: 'MoMo', vnpay: 'VNPay' };
@@ -426,6 +427,8 @@ export async function performance(workerId) {
     rating_avg: p.rating_count ? p.rating_avg : null,
     rating_count: p.rating_count,
     trust_score: p.trust_score,
+    // Giải thích điểm tin cậy cho thợ: 3 thành phần + trọng số (algorithms/trust.js)
+    trust: await explainTrust(pool, workerId),
     total_completed: p.total_jobs,
     total_net: totalNet[0].net,
   };

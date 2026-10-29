@@ -1,4 +1,4 @@
-import { query } from '../config/db.js';
+import { query } from '../../config/db.js';
 
 export const getOverview = async () => {
   const statsQuery = query(`

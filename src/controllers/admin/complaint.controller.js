@@ -1,6 +1,6 @@
-import * as complaintService from '../../services/complaint.service.js';
+import * as complaintService from '../../services/admin/complaint.service.js';
 import { AppError } from '../../utils/AppError.js';
-import { notify } from '../../services/customer/notify.service.js';
+import { notify } from '../../services/shared/notify.service.js';
 
 const REPORT_PREFIX = '[Thợ báo cáo] ';
 const RESULT = { processing: 'đang được xử lý', resolved: 'đã được giải quyết', rejected: 'đã bị từ chối' };

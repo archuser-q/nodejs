@@ -1,6 +1,6 @@
 /** Gửi email (mã đặt lại mật khẩu). Chưa cấu hình SMTP thì chỉ ghi ra log.  [Thành viên B] */
 import nodemailer from 'nodemailer';
-import { settings } from '../config/worker.js';
+import { settings } from '../../config/settings.js';
 
 export const smtpConfigured = () => !!(settings.smtpHost && settings.smtpFrom);
 

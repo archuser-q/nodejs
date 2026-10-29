@@ -4,9 +4,10 @@ import { env } from '../../config/env.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { CHAT_STATUSES, getOwnedOrder, withTransaction } from './common.js';
-import { emitOrderUpdated, notify } from './notify.service.js';
+import { emitOrderUpdated, notify } from '../shared/notify.service.js';
 import { recordPaidOrder } from '../worker/finance.service.js'; // [B] ví thợ + hoa hồng khi đơn được thanh toán
 import { workerLevel } from '../worker/level.js'; // hạng thợ (Đồng/Bạc/Vàng/Kim cương) — chỉ để hiển thị
+import { recalcTrustScore } from '../trust/trust.service.js';
 
 const money = (n) => `${Number(n).toLocaleString('vi-VN')}đ`;
 const PAYMENT_LABEL = { momo: 'MoMo', vnpay: 'VNPay' }; // [B]
@@ -206,7 +207,7 @@ export const createReview = async (customerId, orderId, rating, comment) => {
        VALUES ($1, $2, $3, $4, $5) RETURNING id, rating, comment, created_at`,
       [orderId, customerId, o.worker_id, rating, comment],
     );
-    // Điểm trung bình đơn giản; trust score do module Review (thuật toán trust score) cập nhật riêng
+    // Điểm trung bình đơn giản (hiển thị) + điểm tin cậy làm mượt Bayes (dùng khi ghép thợ)
     await sql(
       db,
       `UPDATE workers SET
@@ -215,6 +216,7 @@ export const createReview = async (customerId, orderId, rating, comment) => {
        WHERE user_id = $1`,
       [o.worker_id],
     );
+    await recalcTrustScore(db, o.worker_id, 'review');
     return { order: o, review: rows[0] };
   });
 

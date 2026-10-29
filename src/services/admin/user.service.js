@@ -1,5 +1,5 @@
-import { query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
+import { query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
 
 export const listUsers = async ({ role, search, status, page, pageSize }) => {
   const params = [role];

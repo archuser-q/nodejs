@@ -1,4 +1,4 @@
-import * as authService from '../../services/auth.service.js';
+import * as authService from '../../services/admin/auth.service.js';
 import { authCookieOptions, AUTH_COOKIE } from '../../utils/cookie.js';
 import { AppError } from '../../utils/AppError.js';
 

@@ -1,4 +1,4 @@
-import * as orderService from '../../services/order.service.js';
+import * as orderService from '../../services/admin/order.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const STATUSES = ['pending', 'matching', 'accepted', 'on_the_way', 'arrived', 'in_progress', 'completed', 'cancelled'];

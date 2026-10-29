@@ -1,6 +1,6 @@
 import { q as query, sql } from '../../config/db.js';
 import { emitToUser } from '../../realtime/socket.js';
-import { sendPush } from '../push.service.js'; // [B] thông báo đẩy Expo (tắt mặc định, PUSH_ENABLED)
+import { sendPush } from './push.service.js'; // [B] thông báo đẩy Expo (tắt mặc định, PUSH_ENABLED)
 
 /**
  * Tạo thông báo + đẩy realtime. Gọi SAU khi transaction đã COMMIT.

@@ -1,8 +1,8 @@
 # Ghi chú cho thành viên nhóm (và trợ lý AI) khi làm việc trên THỢ NHANH
 
 > Đọc file này **trước khi sửa code**. Claude Code thường tự đọc file `CLAUDE.md` ở thư mục gốc repo. Với công cụ khác, hãy bảo trợ lý đọc file này trước.
-> Nếu đang làm trong repo ReactJS (app khách / web quản trị), chép file này sang thư mục gốc repo đó.
-> Chi tiết lý do từng thay đổi của thành viên B: `docs/TICH_HOP_THANH_VIEN_B.md`.
+> Repo ReactJS (app khách, app thợ, web quản trị) có `README.md` riêng ở thư mục gốc; khi làm ở đó vẫn tuân theo các quy tắc ở đây.
+> **Bản đồ code (thư mục nào làm gì, tính năng nào ở file nào): `docs/KIEN_TRUC.md`.** Chi tiết lý do từng thay đổi của thành viên B: `docs/TICH_HOP_THANH_VIEN_B.md`.
 
 ## 1. Bối cảnh
 
@@ -10,10 +10,10 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
 
 | Phần | API | Người phụ trách | Tài liệu |
 |---|---|---|---|
-| Web quản trị (React, thư mục `dashboard` ở repo ReactJS) | `/api/admin/...` (cookie) | thành viên nhóm | — |
-| App khách hàng (React Native) | `/api/customer/...` (Bearer) | thành viên nhóm | `docs/CUSTOMER_API.md` |
-| App thợ + **thuật toán ghép cặp** | `/api/worker/...` (Bearer) | **thành viên B** | `docs/WORKER_API.md`, `docs/MATCHING.md` |
-| Điểm tin cậy (Trust Score) | cập nhật `workers.trust_score` | thành viên A | mục 5 bên dưới |
+| Web quản trị (React, `ReactJS/dashboard`) | `/api/admin/...` (cookie) | thành viên nhóm | `docs/ADMIN_API.md` |
+| App khách hàng (React Native, `ReactJS/thonhanh-customer-app`) | `/api/customer/...` (Bearer) | thành viên nhóm | `docs/CUSTOMER_API.md` |
+| App thợ (React Native, `ReactJS/thonhanh-worker-app`) + **thuật toán ghép cặp** | `/api/worker/...` (Bearer) | **thành viên B** | `docs/WORKER_API.md`, `docs/MATCHING.md` |
+| Điểm tin cậy (Trust Score) | tự cập nhật `workers.trust_score` | thành viên B (đã làm) | `src/algorithms/trust.js`, `docs/MATCHING.md` mục 7 |
 
 Đã chốt:
 - **Phạm vi chỉ gồm dịch vụ của thợ điện.** Danh mục là 4 nhóm chuyên môn: Sửa chữa điện · Lắp đặt thiết bị điện · Đồ điện gia dụng · Đi dây & tủ điện. Không thêm Nước, Điện lạnh, Khoá, Sơn...
@@ -27,7 +27,7 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
 ## 2. Những điều KHÔNG được làm
 
 1. **Không sửa phần của thành viên B** khi chưa trao đổi:
-   - các thư mục `src/matching/`, `src/services/matching/`, `src/services/worker/`, `src/controllers/worker/`, `src/routes/worker/`;
+   - các thư mục `src/algorithms/`, `src/services/matching/`, `src/services/trust/`, `src/services/worker/`, `src/controllers/worker/`, `src/routes/worker/`;
    - các file `src/routes/upload.routes.js`, `src/routes/admin/dispatch.routes.js`, `migrations/1792200000000_worker-app-matching.sql`;
    - các đoạn có đánh dấu `[B]` trong file chung.
 
@@ -52,6 +52,7 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
   - dùng `sql(db, text, params)` hoặc `q(text, params)` trong `src/config/db.js`;
   - hai hàm này trả BIGINT/NUMERIC về `number`. `query()` cũ trả chuỗi, chỉ dashboard cũ dùng;
   - luôn dùng tham số `$1, $2...`, không ghép chuỗi SQL từ dữ liệu người dùng.
+- **Chia tầng:** `routes` (khai báo đường dẫn) → `controllers` (kiểm tra dữ liệu vào, không có SQL) → `services` (nghiệp vụ + SQL) → `algorithms` (tính toán thuần, không đụng CSDL). Tham số nghiệp vụ có mặc định đọc từ `src/config/settings.js`.
 - **Transaction:** dùng `withTransaction(fn)` (`services/customer/common.js`) hoặc `transaction((db, after) => ...)` (`utils/tx.js`). Việc cần làm *sau khi COMMIT* (thông báo, emit) đặt trong `after(...)`.
 - **Lỗi:** `throw new AppError(status, 'Thông báo tiếng Việt')`. Client nhận `{ "message": "..." }` và hiển thị thẳng cho người dùng, nên viết câu tiếng Việt dễ hiểu.
 - **Danh sách** trả `{ items, total, page, pageSize }`, query `?page=&pageSize=`.
@@ -59,8 +60,8 @@ THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện**. N
 - **Tiền** là số nguyên VND. **Toạ độ** là `GEOGRAPHY(POINT, 4326)`; tìm quanh một điểm thì dùng `ST_DWithin` để tận dụng chỉ mục GiST.
 - **Xác thực:** admin dùng cookie (`requireAdmin`); app khách và app thợ dùng `Authorization: Bearer <JWT>` (`requireCustomer`, `requireWorker`).
 - **Realtime / thông báo:**
-  - `emitToUser(userId, event, payload)` (phòng `user:<id>`);
-  - `notify(userId, { title, body, type, data })` lưu bảng `notifications`, đẩy `notification:new` và push;
+  - `emitToUser(userId, event, payload)` (phòng `user:<id>`, `src/realtime/socket.js`);
+  - `notify(userId, { title, body, type, data })` (`src/services/shared/notify.service.js`) lưu bảng `notifications`, đẩy `notification:new` và push;
   - `emitOrderUpdated(order)` báo cho cả khách lẫn thợ của đơn.
 - **Ảnh:** client tải lên `POST /api/uploads` (multipart, trường `file`, cần đăng nhập) rồi gửi URL nhận được.
 - Chú thích trong code và tên thông báo viết tiếng Việt.
@@ -76,45 +77,42 @@ docker compose down -v             # xoá sạch dữ liệu để chạy lại 
 Không dùng Docker: `cp .env.example .env`, sửa `DATABASE_URL`, rồi `npm install`, `npm run migrate up`, `npm run seed:demo`, `npm run dev`.
 
 - Tài khoản demo (mật khẩu `12345678`): `admin@thonhanh.vn`, `khach@thonhanh.vn` (SĐT 0912000001), `tho@thonhanh.vn`, `tho2@thonhanh.vn`, `tho.moi@thonhanh.vn` (chờ duyệt), `tho.ao01..12@thonhanh.vn` (thợ ảo).
-- **Không có app thợ trong tay** mà muốn có thợ nhận đơn: `docker compose --profile bots up -d` (thợ ảo tự nhận và làm đơn). Hoặc chạy app thợ bản web (repo app thợ, cổng 8082).
+- **Không có app thợ trong tay** mà muốn có thợ nhận đơn: `docker compose --profile bots up -d` (thợ ảo tự nhận và làm đơn). Hoặc chạy app thợ (`ReactJS/thonhanh-worker-app`).
 - Đóng vai khách qua đúng API app khách: `docker compose exec api npm run demo:customer -- order` (các lệnh khác ghi ở đầu file `scripts/demo-customer.js`).
-- **Kiểm thử bắt buộc trước khi mở PR:** `npm test` (27 bài, cần PostgreSQL + PostGIS ở máy; CSDL test `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`). Tất cả phải đạt.
+- **Kiểm thử bắt buộc trước khi mở PR:** `npm test` (42 bài, cần PostgreSQL + PostGIS ở máy; CSDL test `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`). Tất cả phải đạt.
 
-## 5. Việc cần làm theo từng người
+## 5. Tình trạng các việc đã giao khi gộp code
 
-Lý do chi tiết từng mục: `docs/TICH_HOP_THANH_VIEN_B.md` mục 4.
+Lý do chi tiết từng mục: `docs/TICH_HOP_THANH_VIEN_B.md` mục 4. Bản gộp ngày 26/10 đã kiểm tra lại từng mục.
 
 ### Backend chung + app khách hàng
 
-- [ ] Xoá danh mục ngoài nghề điện trong `dev-tools/seed_dev.sql`, `scripts/mockData/*.sql`. Dữ liệu mẫu chuẩn là `npm run seed:demo`.
-- [ ] Bỏ trường `matching_mode` khi tạo đơn: xoá ở `controllers/customer/order.controller.js` và ở `BookScreen.tsx` của app khách. Kiểu `matching_mode` của đơn trả về chỉ là `'instant' | 'batch'`.
-- [ ] Giờ hẹn phải cách hiện tại **ít nhất 60 phút** (hiện chỉ 1 phút). Có thể giới hạn khung giờ làm việc.
-- [ ] Cho khách gửi **ảnh tình trạng** khi đặt đơn: tải qua `POST /api/uploads`, gửi `image_urls` khi tạo đơn, lưu vào `orders.image_urls`. App thợ đã hiển thị sẵn.
-- [ ] Tài khoản khách: đăng nhập Google/Facebook, quên mật khẩu, đổi mật khẩu, đăng ký thiết bị nhận push. Có thể làm theo mẫu `services/worker/auth.service.js`, `social.js`.
-- [ ] App khách: chat hiển thị ảnh (trường `image_url`); kiểu trạng thái báo giá thêm `'cancelled'`.
-- [ ] App khách: **bỏ lựa chọn "Tiền mặt"** ở màn thanh toán (backend trả 400 khi gửi `cash`). Đặt đơn mà nhận lỗi "Bạn chưa thanh toán đơn ..." thì đưa khách tới đơn đó để trả.
-- [ ] Mật khẩu khách (hiện ≥ 6 ký tự) nên dùng chung `password()` của `src/utils/validate.js` cho đồng bộ với thợ.
-- [ ] `dev-tools/` còn lệnh `confirm-cash`, `scripts/mockData/seed_orders.sql` còn sinh thanh toán `cash`: không còn đúng nghiệp vụ.
-- [ ] Bảo hành: hiện mới tạo khiếu nại. Chốt luồng "admin duyệt → tạo đơn bảo hành 0đ cho thợ cũ" rồi báo B làm phần app thợ.
-- [ ] `getOrderDetail` của khách: bỏ `refreshOffers` (đang ghi CSDL mỗi lần xem; bộ điều phối đã tự lo).
-- [ ] Đổi các thông báo lỗi tiếng Anh sang tiếng Việt: các service admin ("Worker not found", "Cannot cancel..."), và `ErrorHandler` ("Already exists", "Related record not found", "Internal server error").
-- [ ] Xoá thư mục `dev-tools/` (mở `/api/dev` **không cần đăng nhập** khi không phải production) cùng 2 script `seed:dev`, `simulate` trong `package.json`. Xoá các file lạc `1.txt` (VD `src/routes/customer/1.txt`; B đã xoá 2 file trong `controllers/worker`, `routes/worker`).
+- [x] Xoá danh mục ngoài nghề điện: đã xoá hẳn `dev-tools/`, `scripts/mockData/`. Dữ liệu mẫu chuẩn là `npm run seed:demo`.
+- [x] Bỏ `matching_mode` khi tạo đơn (backend bỏ qua nếu client gửi lên; kiểu trả về chỉ `'instant' | 'batch'`).
+- [x] Giờ hẹn cách hiện tại ít nhất 60 phút, chỉ nhận 7:00–21:00, tối đa 30 ngày.
+- [x] Ảnh tình trạng khi đặt đơn (`image_urls`).
+- [x] Tài khoản khách: Google/Facebook, quên / đổi mật khẩu, đăng ký thiết bị nhận push; mật khẩu dùng chung `password()`.
+- [x] App khách: chat có ảnh, báo giá có trạng thái `'cancelled'`, bỏ "Tiền mặt", bị chặn vì đơn chưa trả thì đưa tới đơn đó.
+- [x] `getOrderDetail` không còn ghi CSDL mỗi lần xem.
+- [x] Thông báo lỗi của các service đã là tiếng Việt. Riêng 5 câu tiếng Anh chung trong `middlewares/ErrorHandler.js` ("Already exists"...) được 2 app tự dịch (`src/api/client.ts`), nên giữ nguyên để không lệch với app.
+- [x] Xoá `dev-tools/` (từng mở `/api/dev` không cần đăng nhập), script `seed:dev`, `simulate`, các file `1.txt`.
+- [ ] **Bảo hành** hiện là khiếu nại loại `warranty` do khách gửi trong thời hạn, admin xử lý ở trang Khiếu nại. Chưa có bước "admin duyệt → tạo đơn bảo hành 0đ giao lại thợ cũ" (hướng phát triển).
 
 ### Web quản trị
 
-- [x] Áp `docs/dashboard-che-do-ghep.patch` (trong thư mục `dashboard`: `git apply <đường dẫn>/dashboard-che-do-ghep.patch`) để chọn chế độ ghép và k. Hoặc tự làm, vì backend đã nhận `mode`, `max_offers`.
-- [x] **Duyệt hồ sơ thợ theo từng giấy tờ** (hiện từ chối là từ chối cả bộ). Hiển thị `submitted_at`, xếp hồ sơ chờ duyệt theo thời gian gửi. Từ chối giấy nào thì ghi lý do cho đúng giấy đó (`worker_documents.reject_reason`); app thợ đã hiện lý do theo từng giấy.
-- [x] Trang **duyệt rút tiền**: `GET /api/admin/withdrawals?status=`, `POST /api/admin/withdrawals/:id/approve`, `POST .../reject { note }` (từ chối thì tiền hoàn về ví).
-- [x] Trang khiếu nại: phân biệt báo cáo do thợ gửi (`reporter_id` khác null, tiêu đề bắt đầu "[Thợ báo cáo]") với khiếu nại của khách.
-- [x] Tuỳ chọn: ô trạng thái bộ điều phối (`GET /api/admin/dispatch/status`).
-- [x] Xoá file CV cá nhân (PDF) trong `dashboard/src/components/matching`. Đổi placeholder "VD: Điện lạnh" thành "VD: Sửa chữa điện".
-- [x] Thêm: bản đồ giám sát đơn/thợ, chuông việc cần xử lý, chi tiết đơn có ảnh trước/sau + lịch sử lời mời + vết di chuyển (API: `docs/ADMIN_API.md`).
+- [x] Chọn chế độ ghép và k; trạng thái bộ điều phối.
+- [x] Duyệt hồ sơ thợ theo từng giấy tờ, xếp theo `submitted_at`, lý do từ chối theo từng giấy.
+- [x] Duyệt rút tiền (`/api/admin/withdrawals`). Mặc định mọi lệnh rút chờ admin duyệt (`WITHDRAWAL_AUTO_APPROVE=false`).
+- [x] Phân biệt báo cáo do thợ gửi với khiếu nại của khách.
+- [x] Bản đồ giám sát, chuông việc cần xử lý, chi tiết đơn (ảnh trước/sau, lịch sử lời mời, vết di chuyển).
 
-### Điểm tin cậy (thành viên A)
+### Điểm tin cậy
 
-- [ ] `workers.trust_score` (0..1, trọng số 0,30 khi ghép) **chưa được ai tính**; đánh giá mới chỉ cập nhật `rating_avg`. Cần cập nhật sau mỗi đánh giá, đơn hoàn thành, huỷ, khiếu nại được xác nhận.
-  - Gợi ý: điểm đánh giá làm mượt Bayes, tỷ lệ hoàn thành, `workers.cancel_rate` (B đã tính sẵn), số khiếu nại đúng. Ghi lịch sử vào `trust_score_history`.
-  - Lưu ý: thợ chưa có đơn, chưa có đánh giá mà `trust_score = 0` thì khi ghép đang dùng 0,5 (`TRUST_COLD_START`). Khi đã tính thật, giữ quy ước này hoặc báo B.
+- [x] Đã làm (thành viên B): `src/algorithms/trust.js` (công thức) + `src/services/trust/trust.service.js` (lấy dữ liệu, lưu `trust_score_history`).
+  - `trust = 0,5 · đánh giá làm mượt Bayes + 0,3 · giữ lời (hoàn thành / huỷ sau khi nhận) + 0,2 · khiếu nại đúng của khách`.
+  - Tự tính lại sau mỗi đánh giá, đơn hoàn thành, thợ huỷ đơn đã nhận, admin xử lý xong khiếu nại của khách. Đổi tham số thì chạy `npm run trust:recalc`.
+  - Thợ chưa có lịch sử giữ `trust_score = 0`, khi ghép dùng mức trung tính 0,5 (`TRUST_COLD_START`).
+  - **Không cập nhật `workers.trust_score` bằng tay** ở chỗ khác; sự kiện mới ảnh hưởng độ tin cậy thì gọi `recalcTrustScore(db, workerId, lyDo)` trong cùng transaction.
 
 ## 6. Trước khi mở Pull Request
 

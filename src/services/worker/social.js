@@ -4,7 +4,7 @@
  * App lấy token từ Google/Facebook (expo-auth-session) rồi gửi lên; backend KHÔNG tin thông tin app
  * gửi kèm mà tự hỏi lại Google/Facebook xem token có thật và có đúng ứng dụng của mình không.
  */
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 
 const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);

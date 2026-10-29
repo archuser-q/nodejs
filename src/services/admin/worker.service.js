@@ -1,5 +1,5 @@
-import { pool, query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
+import { pool, query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
 
 // Hồ sơ cần admin xử lý: đã bấm "Gửi hồ sơ" và đang chờ duyệt, hoặc thợ đã duyệt nhưng gửi giấy tờ mới
 const NEEDS_REVIEW = `((w.verification_status = 'pending' AND w.submitted_at IS NOT NULL)

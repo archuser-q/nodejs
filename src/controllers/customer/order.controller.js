@@ -1,15 +1,11 @@
 import * as orderService from '../../services/customer/order.service.js';
 import * as interaction from '../../services/customer/interaction.service.js';
-import * as notifyService from '../../services/customer/notify.service.js';
+import * as notifyService from '../../services/shared/notify.service.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertId, pagination } from '../../services/customer/common.js';
 import * as v from '../../utils/validate.js';
 
 const GROUPS = ['active', 'completed', 'cancelled'];
-<<<<<<< HEAD
-const MODES = ['instant', 'batch'];
-=======
->>>>>>> origin/staging-customer-api
 // [B] Nền tảng không nhận tiền mặt: mọi đơn trả qua cổng thanh toán để thu hoa hồng và trả thợ minh bạch
 const METHODS = ['momo', 'vnpay'];
 

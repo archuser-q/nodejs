@@ -5,7 +5,7 @@
  * App thợ hiển thị 3 trạng thái: offline (!is_online) · busy (is_online && is_busy) · online.
  */
 import { sql } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 
 /** Đơn thợ đang giữ (đã nhận, chưa xong) */
 export const OPEN_JOB_STATUSES = ['accepted', 'on_the_way', 'arrived', 'in_progress'];

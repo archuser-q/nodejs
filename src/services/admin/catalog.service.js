@@ -1,5 +1,5 @@
-import { query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
+import { query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
 
 const buildUpdate = (data, allowed) => {
   const keys = allowed.filter((key) => data[key] !== undefined);

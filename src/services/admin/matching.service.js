@@ -1,7 +1,7 @@
-import { pool, query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
-import { findCandidates } from './candidate.js';
-import { rankCandidates } from './scoring.js';
+import { pool, query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
+import { findCandidates } from '../matching/candidate.js';
+import { rankCandidates } from '../../algorithms/scoring.js';
 
 const FIELDS = [
   'name', 'w_distance', 'w_trust', 'w_skill', 'w_acceptance', 'w_workload',

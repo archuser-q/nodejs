@@ -6,6 +6,8 @@ Tài liệu dành cho cả nhóm khi gộp 3 phần thành một hệ thống. N
 
 Bản tóm tắt dạng danh sách việc + các quy tắc khi sửa code: `CLAUDE.md` ở thư mục gốc.
 
+> **Cập nhật 26/10 (bản gộp cuối):** các việc ở mục 4 đã làm xong, trừ luồng "bảo hành → đơn 0đ" (tình trạng từng mục: `CLAUDE.md` mục 5). Điểm tin cậy do B làm (mục 4 cuối). Code đã sắp lại thư mục, các đường dẫn trong tài liệu này đã sửa theo cấu trúc mới; bản đồ đầy đủ ở `docs/KIEN_TRUC.md`.
+
 ## 1. Phạm vi đã thống nhất
 
 - **Chỉ dịch vụ của thợ điện.** Danh mục là các nhóm chuyên môn trong nghề điện:
@@ -26,12 +28,13 @@ Bản tóm tắt dạng danh sách việc + các quy tắc khi sửa code: `CLAU
 | Nhóm | File |
 |---|---|
 | Migration | `migrations/1792200000000_worker-app-matching.sql` (có `down`) |
-| Thuật toán | `src/matching/` (Hungarian, Greedy, Union-Find, xếp hạng) |
-| Bộ điều phối | `src/services/matching/` (hàng đợi, Greedy / Hungarian / auto, vòng chạy nền, tỷ lệ nhận đơn) |
+| Thuật toán | `src/algorithms/` (Hungarian, Greedy, Union-Find, hàm điểm, điểm tin cậy) |
+| Bộ điều phối | `src/services/matching/` (lọc ứng viên, hàng đợi, Greedy / Hungarian / auto, vòng chạy nền, tỷ lệ nhận đơn) |
+| Điểm tin cậy | `src/services/trust/trust.service.js`, `scripts/recalc-trust.js` |
 | API app thợ | `src/routes/worker/`, `src/controllers/worker/`, `src/services/worker/`, `src/middlewares/requireWorker.js` |
-| Dùng chung | `src/routes/upload.routes.js` (`POST /api/uploads`, `/media`), `src/services/mail.service.js`, `src/services/push.service.js` |
+| Dùng chung | `src/routes/upload.routes.js` (`POST /api/uploads`, `/media`), `src/services/shared/mail.service.js`, `src/services/shared/push.service.js` |
 | Admin | `src/routes/admin/dispatch.routes.js` (trạng thái điều phối, đổi chế độ, duyệt rút tiền) |
-| Tiện ích | `src/config/worker.js`, `src/utils/{tx,validate,vn}.js` |
+| Tiện ích | `src/config/settings.js`, `src/utils/{tx,validate,vn}.js` |
 | Script / test | `scripts/` (seed demo, thợ ảo, khách giả lập, benchmark, khởi động Docker), `test/` |
 | Docker | `Dockerfile`, `docker-compose.yml`, `.dockerignore` |
 
@@ -55,16 +58,18 @@ Mọi chỗ sửa trong các file dưới đây đều có đánh dấu `[B]`. K
 | `src/services/customer/dispatch.service.js` | thành lớp chuyển tiếp: `dispatchOffers` / `refreshOffers` gọi bộ điều phối của B (bản cũ gửi offer trực tiếp, không có hết hạn hay mời lại) |
 | `src/services/customer/interaction.service.js` | `settlePayment` gọi `recordPaidOrder` (ví thợ, hoa hồng 15 %, chống cộng trùng); chat nhận thêm `image_url`; khách không thấy báo cáo do thợ gửi; `createPayment` bỏ nhánh tiền mặt |
 | `src/controllers/customer/order.controller.js` | phương thức thanh toán chỉ còn `momo`, `vnpay`; gửi `cash` → 400 kèm câu giải thích |
-| `src/services/customer/notify.service.js` | gửi thêm thông báo đẩy (Expo, tắt mặc định) |
+| `src/services/shared/notify.service.js` | gửi thêm thông báo đẩy (Expo, tắt mặc định) |
 | `src/services/customer/order.service.js` | khi khách huỷ: đóng lời mời với `reason='closed'`, báo `offer:closed` cho app thợ, tính lại cờ bận thay vì đặt thẳng `FALSE`; chặn đặt đơn mới khi còn đơn đã xong chưa thanh toán; `can_pay` không còn phụ thuộc tiền mặt |
-| `src/services/order.service.js` (admin huỷ đơn) | trước đây không báo cho ai: thợ đang trên đường không biết đơn đã huỷ. Nay báo cho khách và thợ, đóng lời mời, tính lại cờ bận |
-| `src/services/candidate.js` | thêm tuỳ chọn `includeBusy` (đơn hẹn giờ), `db` (chạy trong transaction); trả thêm bán kính nhận việc và thời điểm cập nhật vị trí; thợ mới dùng điểm tin cậy trung tính 0,5 |
-| `src/services/matching.service.js`, `src/controllers/admin/matching.controller.js` | form cấu hình nhận thêm `mode`, `max_offers` (không gửi thì giữ nguyên, nên web quản trị cũ vẫn chạy) |
+| `src/services/admin/order.service.js` (admin huỷ đơn) | trước đây không báo cho ai: thợ đang trên đường không biết đơn đã huỷ. Nay báo cho khách và thợ, đóng lời mời, tính lại cờ bận |
+| `src/services/matching/candidate.js` | thêm tuỳ chọn `includeBusy` (đơn hẹn giờ), `db` (chạy trong transaction); trả thêm bán kính nhận việc và thời điểm cập nhật vị trí; thợ mới dùng điểm tin cậy trung tính 0,5 |
+| `src/services/admin/matching.service.js`, `src/controllers/admin/matching.controller.js` | form cấu hình nhận thêm `mode`, `max_offers` (không gửi thì giữ nguyên, nên web quản trị cũ vẫn chạy) |
 | `src/controllers/admin/worker.controller.js` | duyệt / từ chối hồ sơ xong thì báo cho thợ; từ chối / bỏ duyệt thì tắt nhận đơn của thợ và thu hồi lời mời đang chờ (trước đây thợ vẫn hiện "Đang nhận đơn") |
 | `src/routes/admin/index.js` | gắn `/admin/dispatch`, `/admin/withdrawals` |
 | `package.json`, `.env.example`, `.gitignore` | thư viện `multer`, `nodemailer`; script demo / test; biến môi trường mới |
 
 ## 4. Việc cần các bạn làm khi ghép
+
+> Đã xong khi gộp ngày 26/10, trừ mục 7 (bảo hành) của phần backend chung. Giữ lại để biết lý do từng thay đổi.
 
 ### Backend chung và app khách hàng
 
@@ -93,14 +98,12 @@ Mọi chỗ sửa trong các file dưới đây đều có đánh dấu `[B]`. K
 6. Xoá file CV cá nhân (PDF) đang nằm trong `dashboard/src/components/matching`.
 7. Placeholder "VD: Điện lạnh" ở form danh mục nên đổi thành "VD: Sửa chữa điện".
 
-### Điểm tin cậy (Trust Score)
+### Điểm tin cậy (Trust Score) — B đã làm
 
-`workers.trust_score` (trọng số 0,30 trong hàm điểm ghép cặp) **chưa được ai tính**. Đánh giá mới chỉ cập nhật `rating_avg`. Hiện chỉ dữ liệu seed có giá trị; thợ mới dùng mức trung tính 0,5 khi ghép.
-
-Người phụ trách Trust Score cần cập nhật `trust_score` (0..1) sau mỗi đánh giá, hoàn thành, huỷ và khiếu nại được xác nhận. Gợi ý các thành phần:
-- điểm đánh giá đã làm mượt Bayes (tránh 1 đánh giá 5★ thành điểm tuyệt đối);
-- tỷ lệ hoàn thành, tỷ lệ huỷ (có sẵn `workers.cancel_rate`);
-- số khiếu nại đúng.
+Trước khi gộp, `workers.trust_score` (trọng số 0,30 trong hàm điểm ghép cặp) chưa được ai tính. B đã làm:
+- `src/algorithms/trust.js`: `trust = 0,5 · đánh giá làm mượt Bayes + 0,3 · giữ lời + 0,2 · khiếu nại đúng` (giải thích và ví dụ: `docs/MATCHING.md` mục 7);
+- `src/services/trust/trust.service.js`: tính lại ngay sau mỗi đánh giá, đơn hoàn thành, thợ huỷ đơn đã nhận, admin xử lý xong khiếu nại của khách; ghi `trust_score_history`;
+- app thợ (Hồ sơ → Hiệu suất làm việc) hiện điểm và 3 thành phần.
 
 ## 5. Biến môi trường mới
 
@@ -114,19 +117,6 @@ Tất cả đều có mặc định, xem `.env.example`. Hay dùng:
 - `TRUST_COLD_START`
 - `GOOGLE_*` / `FACEBOOK_*` / `SMTP_*`
 
-## 6. Đẩy code lên GitHub (không ghi đè nhánh chung)
+## 6. Đẩy code lên GitHub
 
-```bash
-git clone <repo backend của nhóm> && cd <thư mục repo>
-git checkout <nhánh chung của nhóm, VD dev-q> && git pull
-git checkout -b feature/worker-app-matching
-# chép toàn bộ nội dung thư mục backend-node đè lên (TRỪ .git, node_modules, .env, media)
-git add -A
-git status                      # xem lại: không có .env, node_modules, media
-git commit -m "Thanh vien B: API app tho, module ghep cap, Docker, kiem thu"
-git push -u origin feature/worker-app-matching
-```
-
-Sau đó mở Pull Request vào nhánh chung trên GitHub để cả nhóm xem trước khi gộp.
-- Code này đã gộp sẵn `feature/customer-api`. Nếu nhánh chung chưa có phần đó, PR sẽ kèm cả code app khách. Nên gộp `feature/customer-api` trước.
-- Không `push --force`, không `git reset` trên `main` hay nhánh chung.
+Bản gộp cuối được đẩy đè lên nhánh `staging` (cả nhóm đã đồng ý). Từ đây mỗi người làm trên nhánh riêng tách từ `staging` rồi mở Pull Request. Không `push --force`, không `git reset` trên `main` hay nhánh chung.

@@ -1,4 +1,4 @@
-import * as matchingService from '../../services/matching.service.js';
+import * as matchingService from '../../services/admin/matching.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const WEIGHTS = ['w_distance', 'w_trust', 'w_skill', 'w_acceptance', 'w_workload'];

@@ -1,10 +1,10 @@
 /** Kiểm chứng thuật toán (không cần DB): Hungarian tự cài đặt so với vét cạn, Greedy, Union-Find, hàm điểm. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hungarianMax, totalScore } from '../src/matching/hungarian.js';
-import { greedyInOrder } from '../src/matching/greedy.js';
-import { competitionGroups } from '../src/matching/grouping.js';
-import { rankForDispatch } from '../src/matching/scoring.js';
+import { hungarianMax, totalScore } from '../src/algorithms/hungarian.js';
+import { greedyInOrder } from '../src/algorithms/greedy.js';
+import { competitionGroups } from '../src/algorithms/grouping.js';
+import { rankForDispatch } from '../src/algorithms/scoring.js';
 import { workerLevel } from '../src/services/worker/level.js';
 
 function rng(seed) {
@@ -122,4 +122,39 @@ test('hạng thợ theo mốc số đơn + điểm đánh giá', () => {
   assert.equal(workerLevel(120, 4.8).key, 'vang');
   assert.equal(workerLevel(400, 4.9).key, 'kim_cuong');
   assert.equal(workerLevel(65, 4.9).progress, 0.5);
+});
+
+test('điểm tin cậy: làm mượt Bayes, giữ lời, khiếu nại theo tỷ lệ', async () => {
+  const { computeTrust, hasHistory, platformMean, TRUST_PARAMS } = await import('../src/algorithms/trust.js');
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-4, `${a} ≉ ${b}`);
+  // chưa có gì: không tính (ghép dùng cold start 0,5)
+  assert.equal(hasHistory({}), false);
+  assert.equal(hasHistory({ completed: 1 }), true);
+  // trung bình nền tảng: chưa đủ 20 đánh giá thì dùng 4,0
+  assert.equal(platformMean({ count: 5, avg: 4.9 }), 4.0);
+  assert.equal(platformMean({ count: 50, avg: 4.6 }), 4.6);
+
+  // 1 đơn hoàn thành, 1 đánh giá 5 sao: R = (5·4 + 5)/6 = 4,1667 -> 0,7917; giữ lời (1+4,5)/(1+5) = 0,9167; khiếu nại 1
+  const one = computeTrust({ reviewCount: 1, ratingSum: 5, completed: 1, mean: 4 });
+  near(one.components.rating, 0.7917);
+  near(one.components.reliability, 0.9167);
+  near(one.components.complaints, 1);
+  near(one.score, 0.5 * 0.7917 + 0.3 * 0.9167 + 0.2);
+  // 1 đánh giá 5 sao không vọt lên tối đa; 100 đánh giá 5 sao thì gần tối đa
+  const many = computeTrust({ reviewCount: 100, ratingSum: 500, completed: 100, mean: 4 });
+  assert.ok(one.components.rating < 0.8 && many.components.rating > 0.98);
+  // 1 đánh giá 1 sao không dìm hẳn thợ mới: R = (20 + 1)/6 = 3,5 -> 0,625
+  near(computeTrust({ reviewCount: 1, ratingSum: 1, completed: 1, mean: 4 }).components.rating, 0.625);
+  // huỷ sau khi nhận làm giảm điểm; khiếu nại tính theo tỷ lệ trên số đơn đã làm
+  const cancel = computeTrust({ completed: 1, cancelledAfterAccept: 3, mean: 4 });
+  assert.ok(cancel.components.reliability < 0.62);
+  const fewJobs = computeTrust({ completed: 3, validComplaints: 1, mean: 4 }).components.complaints; // 1 − 4/8
+  const manyJobs = computeTrust({ completed: 95, validComplaints: 1, mean: 4 }).components.complaints; // 1 − 4/100
+  near(fewJobs, 0.5);
+  near(manyJobs, 0.96);
+  // điểm luôn trong [0, 1], trọng số cộng lại = 1
+  const w = TRUST_PARAMS.weights;
+  near(w.rating + w.reliability + w.complaints, 1);
+  const worst = computeTrust({ reviewCount: 200, ratingSum: 200, completed: 0, cancelledAfterAccept: 50, validComplaints: 10, mean: 4 });
+  assert.ok(worst.score >= 0 && worst.score < 0.2);
 });

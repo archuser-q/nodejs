@@ -14,7 +14,7 @@
 import pg from 'pg';
 import { env } from '../../config/env.js';
 import { pool } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { getConfig } from './config.js';
 import * as d from './dispatch.service.js';
 import { syncBusyFlags } from '../worker/state.js';

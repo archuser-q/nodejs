@@ -36,16 +36,6 @@ hoặc mở app thợ bản web. Đóng vai khách bằng script: `npm run demo:
 | Địa chỉ | `GET /addresses` · `POST /addresses` `{ label?, address_text, lat, lng, is_default? }` | địa chỉ đầu tiên tự làm mặc định |
 | | `PATCH /addresses/:id` · `DELETE /addresses/:id` | |
 | Danh mục | `GET /catalog/categories` · `GET /catalog/services?category_id=&search=` | không cần đăng nhập |
-<<<<<<< HEAD
-| Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, matching_mode? }` | tạo đơn `matching`, bộ điều phối của B ghép thợ (xem `docs/MATCHING.md`). **[B]** Còn đơn đã xong mà chưa thanh toán → 400 "Bạn chưa thanh toán đơn ..." |
-| | `GET /orders?group=active\|completed\|cancelled` · `GET /orders/:id` | chi tiết kèm history, extra_quotes, payments, review, warranty, can_* |
-| | `POST /orders/:id/cancel` `{ reason }` | chỉ khi `pending/matching/accepted` |
-| | `GET /orders/:id/tracking` | vị trí thợ (khi đơn đang chạy) |
-| | `POST /orders/:id/quotes/:quoteId/approve` · `.../reject` | báo giá phát sinh |
-| Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content }` · `POST /orders/:id/messages/read` | |
-| Thanh toán | `POST /orders/:id/payments` `{ method: momo\|vnpay }` | chỉ khi đơn `completed`. **[B]** Không nhận tiền mặt nữa: `cash` → 400 "Thợ Nhanh không nhận tiền mặt..." |
-| | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production |
-=======
 | Đơn | `POST /orders` `{ service_id, address_id, description?, scheduled_at?, image_urls? }` | xem "Quy tắc đặt đơn" bên dưới; trả chi tiết đơn |
 | | `GET /orders?group=active\|completed\|cancelled` · `GET /orders/:id` | chi tiết: `history`, `extra_quotes`, `payments`, `review`, `warranty`, `photos`, `searching`, `safety_checked_at`, thợ (kèm `level`, `has_certificate`), các cờ `can_*`. Chỉ đọc, không ghi CSDL |
 | | `POST /orders/:id/cancel` `{ reason }` | chỉ khi `pending / matching / accepted` (huỷ theo mẫu: đóng lời mời `reason='closed'`, báo `offer:closed`, `refreshAvailability`) |
@@ -54,9 +44,8 @@ hoặc mở app thợ bản web. Đóng vai khách bằng script: `npm run demo:
 | Chat | `GET /orders/:id/messages?before_id=&limit=` · `POST /orders/:id/messages` `{ content?, image_url? }` · `POST /orders/:id/messages/read` | gửi chữ, ảnh hoặc cả hai; ảnh tải qua `POST /api/uploads` |
 | Thanh toán | `POST /orders/:id/payments` `{ method: momo\|vnpay }` | chỉ khi đơn `completed`. **Không nhận tiền mặt**: `cash` → 400 |
 | | `POST /payments/:id/sandbox-confirm` | giả lập MoMo/VNPay, tắt ở production. Mọi thanh toán thành công đi qua `settlePayment()` → `recordPaidOrder()` (ví thợ, hoa hồng) |
->>>>>>> origin/staging-customer-api
 | | `GET /payments` | lịch sử giao dịch |
-| Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật `rating_avg`, `rating_count`; `trust_score` do thành viên A tính |
+| Đánh giá | `POST /orders/:id/review` `{ rating 1-5, comment? }` · `GET /reviews` | cập nhật `rating_avg`, `rating_count` và tính lại `trust_score` của thợ (`services/trust`) |
 | Khiếu nại | `POST /orders/:id/complaints` `{ title, content }` · `GET /complaints` | không hiện báo cáo do thợ gửi (`reporter_id` khác null) |
 | Bảo hành | `POST /orders/:id/warranty-claim` `{ content }` | còn hạn `warranty_until`; lưu vào `complaints` type `warranty` (xem đề xuất luồng bên dưới) |
 | Thợ | `GET /workers/:id` | hồ sơ công khai: hạng thợ, có chứng chỉ nghề điện, kỹ năng, 5 đánh giá gần nhất |

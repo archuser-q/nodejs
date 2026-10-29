@@ -1,6 +1,6 @@
 import * as accountService from '../../services/customer/account.service.js';
 import * as auth from '../../services/customer/auth.service.js';
-import * as push from '../../services/push.service.js';
+import * as push from '../../services/shared/push.service.js';
 import { AppError } from '../../utils/AppError.js';
 import * as v from '../../utils/validate.js';
 import { assertId } from '../../services/customer/common.js';

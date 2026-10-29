@@ -1,4 +1,4 @@
-import * as financeService from '../../services/finance.service.js';
+import * as financeService from '../../services/admin/finance.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));

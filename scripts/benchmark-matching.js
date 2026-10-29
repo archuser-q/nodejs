@@ -1,8 +1,8 @@
 /**
  * Thực nghiệm so sánh các chế độ ghép cặp (phục vụ chương Thực nghiệm của báo cáo).  [Thành viên B]
  *
- * Không cần DB: dùng ĐÚNG hàm điểm (src/services/scoring.js — 5 tiêu chí như web quản trị),
- * Hungarian, Greedy và Union-Find (src/matching/*) mà hệ thống thật đang chạy.
+ * Không cần DB: dùng ĐÚNG hàm điểm (src/algorithms/scoring.js — 5 tiêu chí như web quản trị),
+ * Hungarian, Greedy và Union-Find (src/algorithms/*) mà hệ thống thật đang chạy.
  *
  * Phần A — Bài toán gán tĩnh (1 thời điểm có n đơn chờ, n thợ rảnh):
  *   tổng điểm & số cặp của Greedy (theo thứ tự đến) so với Hungarian (tối ưu toàn cục),
@@ -22,10 +22,10 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { criteriaOf } from '../src/services/scoring.js';
-import { hungarianMax, totalScore } from '../src/matching/hungarian.js';
-import { greedyInOrder } from '../src/matching/greedy.js';
-import { competitionGroups } from '../src/matching/grouping.js';
+import { criteriaOf } from '../src/algorithms/scoring.js';
+import { hungarianMax, totalScore } from '../src/algorithms/hungarian.js';
+import { greedyInOrder } from '../src/algorithms/greedy.js';
+import { competitionGroups } from '../src/algorithms/grouping.js';
 
 const CONFIG = { w_distance: 0.35, w_trust: 0.3, w_skill: 0.15, w_acceptance: 0.1, w_workload: 0.1, max_radius_km: 5 };
 const CITY_RADIUS_KM = 8;

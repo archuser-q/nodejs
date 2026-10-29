@@ -29,16 +29,6 @@ app.use('/api/worker', workerRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/media', express.static(MEDIA_ROOT, { maxAge: '7d' }));
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-// Công cụ giả lập thợ để test app khách (thư mục dev-tools, không bắt buộc).
-// Chỉ nạp ngoài production; xoá thư mục dev-tools thì server vẫn chạy bình thường.
-if (!env.isProd) {
-    try {
-        const { default: devRoutes } = await import('../dev-tools/dev.routes.js');
-        app.use('/api/dev', devRoutes);
-    } catch (err) {
-        if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err;
-    }
-}
 
 app.use(NotFound);
 app.use(ErrorHandler);

@@ -1,6 +1,6 @@
-import * as workerService from '../../services/worker.service.js';
+import * as workerService from '../../services/admin/worker.service.js';
 import { AppError } from '../../utils/AppError.js';
-import { notify } from '../../services/customer/notify.service.js'; // [B] báo kết quả duyệt cho app thợ
+import { notify } from '../../services/shared/notify.service.js'; // [B] báo kết quả duyệt cho app thợ
 import { onVerificationRevoked } from '../../services/worker/profile.service.js'; // [B]
 
 const STATUSES = ['active', 'locked'];

@@ -1,8 +1,8 @@
-import { pool, query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
-import { emitToUser } from '../realtime/socket.js';
-import { emitOrderUpdated, notify } from './customer/notify.service.js';
-import { refreshAvailability } from './worker/state.js';
+import { pool, query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
+import { emitToUser } from '../../realtime/socket.js';
+import { emitOrderUpdated, notify } from '../shared/notify.service.js';
+import { refreshAvailability } from '../worker/state.js';
 
 export const listOrders = async ({ search, status, from, to, page, pageSize }) => {
   const params = [];

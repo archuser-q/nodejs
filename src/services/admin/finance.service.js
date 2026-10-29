@@ -1,4 +1,4 @@
-import { query } from '../config/db.js';
+import { query } from '../../config/db.js';
 
 /**
  * Tài chính cho web quản trị (chỉ đọc).

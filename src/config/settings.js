@@ -23,7 +23,8 @@ export const settings = {
   // nền tảng giữ tiền -> ví thợ cộng phần thực nhận -> thợ rút về ngân hàng.
   commissionRate: num('COMMISSION_RATE', 0.15), // hoa hồng nền tảng trên tổng tiền đơn
   minWithdrawal: num('MIN_WITHDRAWAL', 50_000),
-  withdrawalAutoApprove: bool('WITHDRAWAL_AUTO_APPROVE', true), // môi trường demo: lệnh rút được duyệt ngay
+  // false (mặc định): lệnh rút của thợ chờ admin duyệt ở trang Tài chính; true: duyệt ngay (tiện khi demo một mình)
+  withdrawalAutoApprove: bool('WITHDRAWAL_AUTO_APPROVE', false),
 
   // ── Điều phối đơn ────────────────────────────────────────────────────────
   dispatcherEnabled: bool('DISPATCHER_ENABLED', true),

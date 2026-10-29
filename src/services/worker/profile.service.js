@@ -2,12 +2,12 @@
  * App thợ: hồ sơ, kỹ năng, giấy tờ xác minh, tài khoản ngân hàng, bật/tắt nhận đơn, vị trí, trang chủ.  [Thành viên B]
  */
 import { pool, q, sql } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { USER_FIELDS } from '../../middlewares/requireCustomer.js';
-import { notify } from '../customer/notify.service.js';
+import { notify } from '../shared/notify.service.js';
 import { getConfig } from '../matching/config.js';
 import { withdrawWorkerOffers } from '../matching/dispatch.service.js';
 import { getBank, incomeBetween } from './finance.service.js';
@@ -180,6 +180,8 @@ export async function me(userId) {
     settings: {
       commission_rate: settings.commissionRate,
       min_withdrawal: settings.minWithdrawal,
+      // true: lệnh rút được duyệt ngay (demo); false: chờ admin duyệt ở trang Tài chính của web quản trị
+      withdrawal_auto_approve: settings.withdrawalAutoApprove,
       location_max_age_minutes: settings.locationMaxAgeMinutes,
     },
   };

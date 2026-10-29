@@ -2,8 +2,8 @@
  * Thông báo đẩy qua Expo Push (app thợ / app khách bản build có đăng ký token).  [Thành viên B]
  * Tắt mặc định (PUSH_ENABLED=false): Expo Go không nhận được push, thông báo trong app vẫn đủ dùng.
  */
-import { q } from '../config/db.js';
-import { settings } from '../config/worker.js';
+import { q } from '../../config/db.js';
+import { settings } from '../../config/settings.js';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 

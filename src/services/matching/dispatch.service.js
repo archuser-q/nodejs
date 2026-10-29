@@ -30,17 +30,17 @@
  * không thể cùng "giành" 1 thợ, kể cả khi chạy nhiều tiến trình API.
  */
 import { pool, sql } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
 import { money, vnClock, vnTime } from '../../utils/vn.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { addHistory } from '../customer/common.js';
-import { emitOrderUpdated, notify } from '../customer/notify.service.js';
-import { findCandidates } from '../candidate.js';
-import { rankForDispatch } from '../../matching/scoring.js';
-import { hungarianMax } from '../../matching/hungarian.js';
-import { competitionGroups } from '../../matching/grouping.js';
+import { emitOrderUpdated, notify } from '../shared/notify.service.js';
+import { findCandidates } from './candidate.js';
+import { rankForDispatch } from '../../algorithms/scoring.js';
+import { hungarianMax } from '../../algorithms/hungarian.js';
+import { competitionGroups } from '../../algorithms/grouping.js';
 import { getConfig, orderModeOf } from './config.js';
 import { refreshWorkerStats } from './stats.js';
 import {

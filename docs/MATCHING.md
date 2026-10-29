@@ -24,7 +24,7 @@ Thợ là người thật nên có thể từ chối hoặc không trả lời. 
  trong bán kính R của cấu hình      (bảng dưới)                            xếp giảm dần
 ```
 
-**Bước 1** (`services/candidate.js`) dùng chỉ mục không gian trên `workers.current_location`. Nhờ đó không phải duyệt toàn bộ thợ. Hàm này dùng chung với trang "Mô phỏng" của web quản trị.
+**Bước 1** (`services/matching/candidate.js`) dùng chỉ mục không gian trên `workers.current_location`. Nhờ đó không phải duyệt toàn bộ thợ. Hàm này dùng chung với trang "Mô phỏng" của web quản trị.
 
 **Bước 2: ràng buộc cứng** (`dispatch.service.js › filterEligible`):
 
@@ -39,13 +39,13 @@ Thợ là người thật nên có thể từ chối hoặc không trả lời. 
 | chưa từng được mời đơn này | đã từ chối hoặc bỏ lỡ thì không mời lại |
 | không có lịch trùng trong ±120 phút (đơn hẹn giờ) | không nhận 2 lịch chồng nhau |
 
-**Bước 3: hàm điểm** (`services/scoring.js`, `matching/scoring.js`):
+**Bước 3: hàm điểm** (`algorithms/scoring.js`):
 
 ```
 S(thợ, đơn) = w_d·s_distance + w_t·s_trust + w_s·s_skill + w_a·s_acceptance + w_l·s_workload      (Σw = 1, S ∈ [0, 1])
 
 s_distance   = 1 − d / R                         d: khoảng cách thật (PostGIS, mét), R: bán kính của cấu hình
-s_trust      = trust_score ∈ [0, 1]               điểm tin cậy (thuật toán Trust Score – thành viên A)
+s_trust      = trust_score ∈ [0, 1]               điểm tin cậy (mục 7)
 s_skill      = min(số năm kinh nghiệm, 10) / 10     (1 con số chung thợ khai ở hồ sơ, áp cho mọi nhóm thợ nhận làm)
 s_acceptance = tỷ lệ nhận đơn 30 ngày (làm mượt Bayes, xem dưới)
 s_workload   = 1 − min(số đơn trong ngày, 5) / 5  chia đều việc
@@ -54,9 +54,9 @@ s_workload   = 1 − min(số đơn trong ngày, 5) / 5  chia đều việc
 Trọng số mặc định: khoảng cách 0,35 · tin cậy 0,30 · kỹ năng 0,15 · nhận đơn 0,10 · khối lượng 0,10. Admin sửa được ở web quản trị.
 Khi hoà điểm, thợ gần hơn đứng trước. Nếu vẫn hoà thì thợ có id nhỏ hơn đứng trước, để kết quả ổn định và kiểm thử được.
 
-**Thợ mới (cold start).** Thợ vừa được duyệt chưa có đơn nào, chưa có đánh giá, và `trust_score` chưa được tính (= 0). Nếu dùng nguyên số 0, thợ mới luôn xếp cuối và không bao giờ có đơn đầu tiên. Vì vậy khi ghép, những thợ này dùng mức trung tính `TRUST_COLD_START` = 0,5. Khi đã có lịch sử, hệ thống dùng điểm thật.
+**Thợ mới (cold start).** Thợ vừa được duyệt chưa có đơn nào, chưa có đánh giá nên `trust_score` chưa được tính (= 0). Nếu dùng nguyên số 0, thợ mới luôn xếp cuối và không bao giờ có đơn đầu tiên. Vì vậy khi ghép, những thợ này dùng mức trung tính `TRUST_COLD_START` = 0,5. Khi đã có lịch sử, hệ thống dùng điểm thật.
 
-**Tỷ lệ nhận đơn** (`matching/stats.js`), cập nhật mỗi khi thợ trả lời hoặc lời mời hết hạn:
+**Tỷ lệ nhận đơn** (`services/matching/stats.js`), cập nhật mỗi khi thợ trả lời hoặc lời mời hết hạn:
 
 ```
 acceptance_rate = (nhận + 3) / (nhận + bỏ lỡ + 3)        trong 30 ngày
@@ -212,9 +212,31 @@ Hai kịch bản "vừa" và "cao điểm" cố ý vượt sức chứa của 60
 
 Các con số dùng để so sánh tương đối giữa các cách ghép, không phải dự báo vận hành thật.
 
-## 7. Kiểm thử
+## 7. Điểm tin cậy (Trust Score)
 
-- `npm run test:algo`: Hungarian so với vét cạn trên ma trận ngẫu nhiên, ô không hợp lệ, ma trận chữ nhật; Union-Find; Greedy.
+`s_trust` có trọng số lớn thứ hai (0,30) nên cần một con số phản ánh đúng thợ có đáng tin hay không, không bị 1–2 sự kiện ngẫu nhiên làm lệch. Công thức nằm ở `src/algorithms/trust.js` (hàm thuần, có kiểm thử riêng); `src/services/trust/trust.service.js` lấy số liệu từ CSDL và lưu kết quả.
+
+```
+trust = 0,5 · s_rating + 0,3 · s_reliability + 0,2 · s_complaints                          ∈ [0, 1]
+
+s_rating      = (R − 1) / 4,   R = (C·m + Σ sao) / (C + n)        làm mượt Bayes, C = 5 đánh giá "ảo"
+                m = điểm TB cả nền tảng (≥ 20 đánh giá), chưa đủ thì 4,0
+s_reliability = (K + 4,5) / (K + X + 5)                          K: đơn hoàn thành, X: huỷ sau khi đã nhận (180 ngày)
+s_complaints  = max(0, 1 − 4·V / (K + 5))                         V: khiếu nại / bảo hành của khách được admin xác nhận đúng (180 ngày)
+```
+
+- **Vì sao làm mượt Bayes:** thợ mới có 1 đánh giá 5 sao thì điểm TB đơn giản là 5,0, cao hơn thợ lâu năm 4,8 sao sau 200 đơn. Với C = 5 đánh giá ảo ở mức m, thợ 1 đánh giá chỉ đạt ≈ 4,17 và phải tích luỹ đủ đánh giá tốt mới lên cao. Đây là cách IMDb xếp hạng phim.
+- **Giữ lời** chỉ tính lần thợ huỷ *sau khi đã nhận* (lời mời `accepted` → `cancelled`). Từ chối / bỏ lỡ lời mời đã nằm ở tiêu chí `s_acceptance` nên không tính lặp lại.
+- **Khiếu nại** chỉ tính khiếu nại của khách (không tính báo cáo do thợ gửi) mà admin xử lý là *đúng* (`resolved`); bác bỏ (`rejected`) thì không ảnh hưởng. Tính theo tỷ lệ trên số đơn nên thợ làm nhiều không bị thiệt.
+- **Khi nào tính lại:** ngay trong transaction của các sự kiện: khách đánh giá, thợ hoàn thành đơn, thợ huỷ đơn đã nhận, admin xử lý xong khiếu nại của khách. Mỗi lần điểm thay đổi ghi 1 dòng `trust_score_history` (điểm, điểm TB đơn giản, số đánh giá, lý do, từng thành phần) để giải thích được. `npm run trust:recalc` tính lại cho mọi thợ khi đổi tham số.
+- **Thợ chưa có lịch sử** (chưa đơn, chưa đánh giá) giữ `trust_score = 0`; khi ghép dùng mức trung tính 0,5 (cold start, mục 2).
+- **App thợ** (Hồ sơ → Hiệu suất làm việc) hiện điểm và 3 thành phần qua `GET /api/worker/performance` → `trust`, để thợ biết vì sao điểm tăng giảm.
+
+Ví dụ: thợ 10 đơn hoàn thành, 8 đánh giá tổng 38 sao, huỷ 1 lần, 0 khiếu nại, m = 4,0 → R = (20 + 38)/13 = 4,46, s_rating = 0,865; s_reliability = 14,5/16 = 0,906; s_complaints = 1 → trust = 0,4327 + 0,2719 + 0,2 = **0,905**.
+
+## 8. Kiểm thử
+
+- `npm run test:algo`: Hungarian so với vét cạn trên ma trận ngẫu nhiên, ô không hợp lệ, ma trận chữ nhật; Union-Find; Greedy; công thức điểm tin cậy.
 - `npm test`: chạy trên PostgreSQL/PostGIS thật, đi qua API của app thợ, app khách và admin. Bao gồm:
   - từ chối thì mời đợt sau; hết giờ; quá hạn thì huỷ; thợ tắt app thì lời mời chuyển cho thợ khác;
   - thợ huỷ thì đơn quay lại hàng đợi;
@@ -222,14 +244,16 @@ Các con số dùng để so sánh tương đối giữa các cách ghép, khôn
   - đơn hẹn giờ, trùng lịch;
   - lọc kỹ năng, bán kính, vị trí cũ; cold start;
   - khách / admin huỷ thì app thợ được báo ngay;
+  - điểm tin cậy tăng / giảm đúng sau hoàn thành, đánh giá, khiếu nại được xác nhận, thợ huỷ; khiếu nại bị bác không làm đổi điểm;
   - realtime.
 
-## 8. Mã nguồn
+## 9. Mã nguồn
 
 | File | Nội dung |
 |---|---|
-| `src/matching/hungarian.js` · `greedy.js` · `grouping.js` · `scoring.js` | thuật toán thuần, không phụ thuộc CSDL |
-| `src/services/candidate.js` · `src/services/scoring.js` | lọc không gian, tiêu chí điểm (dùng chung với trang Mô phỏng của admin) |
+| `src/algorithms/hungarian.js` · `greedy.js` · `grouping.js` · `scoring.js` | thuật toán thuần, không phụ thuộc CSDL; `scoring.js` dùng chung với trang Mô phỏng của admin |
+| `src/algorithms/trust.js` · `src/services/trust/trust.service.js` | công thức điểm tin cậy; lấy dữ liệu, tính lại, lưu lịch sử |
+| `src/services/matching/candidate.js` | lọc không gian bằng PostGIS (dùng chung với trang Mô phỏng) |
 | `src/services/matching/dispatch.service.js` | hàng đợi, ràng buộc cứng, gửi lời mời, Greedy / Hungarian / auto, nhận / từ chối / hết hạn |
 | `src/services/matching/dispatcher.js` | vòng chạy nền, leader |
 | `src/services/matching/stats.js` · `config.js` | tỷ lệ nhận đơn, cấu hình đang bật |

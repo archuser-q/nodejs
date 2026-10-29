@@ -18,7 +18,7 @@ services:
       POSTGRES_DB: thonhanh
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "5433:5432"            # pgAdmin / DBeaver: localhost:5433, user / mật khẩu: thonhanh
+      - "${DB_PORT:-5433}:5432"   # pgAdmin / DBeaver: localhost:5433, user / mật khẩu: thonhanh
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -37,17 +37,30 @@ services:
       JWT_EXPIRES_IN: 1d
       # Web quản trị (5173), app thợ bản web (8082) và mọi địa chỉ IP LAN (điện thoại cùng Wi-Fi)
       CLIENT_ORIGIN: http://localhost:5173,http://localhost:8081,http://localhost:8082
-      CORS_ORIGIN_REGEX: ^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$$
+      CORS_ORIGIN_REGEX: ^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$$
       # Điện thoại thật cần thấy ảnh: đặt http://<IP LAN máy tính>:3000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       MEDIA_DIR: /app/media
       SEED_DEMO: "true"        # tự nạp dữ liệu demo khi khởi động (chạy lại không tạo trùng)
       # false: lệnh rút tiền của thợ chờ admin duyệt ở trang Tài chính; true: duyệt tự động
       WITHDRAWAL_AUTO_APPROVE: ${WITHDRAWAL_AUTO_APPROVE:-false}
+      # [B] Tuỳ chọn, chỉ cần khi dùng (để trống là tắt): ghi vào file .env cạnh file này rồi `docker compose up -d`
+      #   Đăng nhập Google / Facebook (docs/HUONG_DAN_GOOGLE_FACEBOOK.md), email quên mật khẩu, thông báo đẩy
+      GOOGLE_WEB_CLIENT_ID: ${GOOGLE_WEB_CLIENT_ID:-}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID:-}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
     volumes:
       - media:/app/media       # ảnh tải lên từ app
     ports:
-      - "3000:3000"
+      - "${API_PORT:-3000}:3000"   # cổng 3000 bận: API_PORT=3001 trong .env
     depends_on:
       db:
         condition: service_healthy

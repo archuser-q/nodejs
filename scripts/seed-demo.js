@@ -15,13 +15,15 @@
  */
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import bcrypt from 'bcryptjs';
 import { pool, sql } from '../src/config/db.js';
-import { settings } from '../src/config/worker.js';
+import { settings } from '../src/config/settings.js';
 import { MEDIA_ROOT } from '../src/routes/upload.routes.js';
 import { recordPaidOrder, addWalletTxn } from '../src/services/worker/finance.service.js';
 import { refreshAvailability } from '../src/services/worker/state.js';
 import { refreshWorkerStats } from '../src/services/matching/stats.js';
+import { recalcAllTrustScores } from '../src/services/trust/trust.service.js';
 import { money } from '../src/utils/vn.js';
 
 const PASSWORD = '12345678';
@@ -79,7 +81,8 @@ function nextWorkdayMorning(now = Date.now()) {
 const MEDIA_NAMES = ['id_card_front', 'id_card_back', 'portrait', 'certificate', 'job-before', 'job-after'];
 
 async function seedMedia() {
-  const src = path.join(path.dirname(new URL(import.meta.url).pathname), 'seed-assets');
+  // fileURLToPath: đúng cả trên Windows (C:\...) và khi đường dẫn có dấu cách
+  const src = path.join(path.dirname(fileURLToPath(import.meta.url)), 'seed-assets');
   const dst = path.join(MEDIA_ROOT, 'seed');
   await fs.mkdir(dst, { recursive: true });
   for (const n of MEDIA_NAMES) await fs.copyFile(path.join(src, `${n}.png`), path.join(dst, `${n}.png`));
@@ -467,7 +470,7 @@ async function seedHistory(db, media, workerId, { days, perDay, seed, todayJobs 
   await addHist(db, up.id, 'pending', 'matching', null, new Date(createdUp), 'Bắt đầu tìm thợ');
   await addHist(db, up.id, 'matching', 'accepted', workerId, new Date(createdUp + 40_000), 'Thợ nhận đơn');
 
-  // Chỉ số của thợ: số đơn, điểm đánh giá trung bình (trust score do module của thành viên A tính)
+  // Chỉ số của thợ: số đơn, điểm đánh giá trung bình (điểm tin cậy tính lại ở cuối, xem recalcAllTrustScores)
   await sql(
     db,
     `UPDATE workers w SET total_jobs = s.jobs, rating_count = s.cnt, rating_avg = COALESCE(ROUND(s.avg, 2), 0)
@@ -578,6 +581,12 @@ export async function seedDemo() {
     if (h1 || h2) log.push(`lịch sử demo: tho@ ${h1} đơn, tho2@ ${h2} đơn`);
     const { rows: allWorkers } = await sql(client, "SELECT user_id FROM workers");
     await refreshWorkerStats(client, allWorkers.map((w) => w.user_id));
+    // Điểm tin cậy của thợ có lịch sử demo tính đúng bằng công thức thật (algorithms/trust.js);
+    // thợ ảo chưa có lịch sử giữ điểm đặt sẵn ở trên để demo ghép cặp có thợ điểm cao / thấp
+    if (h1 || h2) {
+      const t = await recalcAllTrustScores(client, 'seed');
+      log.push(`tính điểm tin cậy cho ${t.updated} thợ có lịch sử`);
+    }
     const moved = await refreshDemoAppointments(client);
     if (moved) log.push(`dời ${moved} lịch hẹn mẫu đã quá giờ sang sáng ngày làm việc kế tiếp`);
     await client.query('COMMIT');
@@ -594,7 +603,8 @@ export async function seedDemo() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Chạy trực tiếp (npm run seed:demo), không chạy khi được import (docker-start.js). So sánh dạng URL để đúng cả trên Windows.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   seedDemo()
     .then(() => pool.end())
     .catch(async (err) => {

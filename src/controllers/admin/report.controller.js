@@ -1,4 +1,4 @@
-import * as reportService from '../../services/report.service.js';
+import * as reportService from '../../services/admin/report.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const GROUPS = { day: 92, week: 366, month: 1100 };

@@ -3,11 +3,13 @@
 THỢ NHANH là nền tảng kết nối khách hàng với **thợ điện** (sửa chữa điện, lắp đặt thiết bị điện, đồ điện gia dụng, đi dây & tủ điện).
 Một backend dùng chung cho 3 phần:
 
-| Phần | Đường dẫn API | Người phụ trách |
-|---|---|---|
-| Web quản trị | `/api/admin/...` (cookie) | thành viên nhóm |
-| App khách hàng | `/api/customer/...` (Bearer) — `docs/CUSTOMER_API.md` | thành viên nhóm |
-| App thợ + **ghép cặp thợ – đơn** | `/api/worker/...` (Bearer) — `docs/WORKER_API.md`, `docs/MATCHING.md` | thành viên B |
+| Phần | Mã nguồn (repo ReactJS) | Đường dẫn API | Người phụ trách |
+|---|---|---|---|
+| Web quản trị | `dashboard/` | `/api/admin/...` (cookie) — `docs/ADMIN_API.md` | thành viên nhóm |
+| App khách hàng | `thonhanh-customer-app/` | `/api/customer/...` (Bearer) — `docs/CUSTOMER_API.md` | thành viên nhóm |
+| App thợ + **ghép cặp thợ – đơn** + **điểm tin cậy** | `thonhanh-worker-app/` | `/api/worker/...` (Bearer) — `docs/WORKER_API.md`, `docs/MATCHING.md` | thành viên B |
+
+**Đọc code bắt đầu từ `docs/KIEN_TRUC.md`**: sơ đồ hệ thống, thư mục nào làm gì, một yêu cầu đi qua những file nào, tính năng nào ở file nào.
 
 Công nghệ: Node.js 22 · Express 5 · PostgreSQL 16 + PostGIS · Socket.IO · node-pg-migrate (SQL thuần) · Docker Compose.
 
@@ -40,7 +42,7 @@ docker compose down -v                                      # dừng và XOÁ d�
 
 Mật khẩu chung: `12345678` (chỉ dữ liệu demo; tài khoản thợ đăng ký mới cần mật khẩu ≥ 8 ký tự, có cả chữ và số).
 
-Thanh toán: **chỉ MoMo / VNPay** (sandbox), không có tiền mặt. Khách trả xong thì 85% vào ví thợ, thợ rút về ngân hàng.
+Thanh toán: **chỉ MoMo / VNPay** (sandbox), không có tiền mặt. Khách trả xong thì 85% vào ví thợ. Thợ gửi lệnh rút về ngân hàng, lệnh chờ admin duyệt ở trang Tài chính của web quản trị (muốn duyệt ngay khi demo: `WITHDRAWAL_AUTO_APPROVE=true`).
 
 | Tài khoản | Vai trò |
 |---|---|
@@ -74,30 +76,36 @@ npm run dev                   # http://localhost:3000
 |---|---|
 | `npm run bots -- --count 8 --accept 0.85` | thợ ảo: đăng nhập, nhận / từ chối lời mời, di chuyển, chụp ảnh, hoàn thành (qua đúng API app thợ) |
 | `npm run demo:customer -- order \| quote \| pay \| review \| cancel \| show \| rush` | khách giả lập qua đúng API app khách (xem đầu file `scripts/demo-customer.js`). `pay` trả qua MoMo / VNPay sandbox; `rush` tự trả các đơn còn nợ trước khi đặt |
-| `npm test` | 27 bài kiểm thử tích hợp trên PostGIS thật (CSDL `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`) |
-| `npm run test:algo` | kiểm chứng thuật toán: Hungarian so với vét cạn, Greedy, Union-Find (không cần CSDL) |
+| `npm test` | 42 bài kiểm thử tích hợp trên PostGIS thật (CSDL `thonhanh_test`, đổi bằng `TEST_DATABASE_URL`) |
+| `npm run test:algo` | kiểm chứng thuật toán: Hungarian so với vét cạn, Greedy, Union-Find, công thức điểm tin cậy (không cần CSDL) |
+| `npm run trust:recalc` | tính lại điểm tin cậy cho mọi thợ (sau khi đổi tham số công thức) |
 | `npm run benchmark -- --out ket-qua` | thực nghiệm so sánh các chế độ ghép (khoảng 15 giây). Kết quả đã chạy nằm trong `docs/thuc-nghiem/` |
 
 ## Cấu trúc
 
 ```
-migrations/                  SQL: schema của nhóm + 1792200000000_worker-app-matching.sql (phần thành viên B)
 src/
-  app.js, server.js          Express + Socket.IO (+ bật bộ điều phối)
-  routes/ controllers/       admin/, customer/, worker/ (B), upload.routes.js (B, dùng chung)
+  server.js, app.js          khởi động HTTP + Socket.IO + bộ điều phối; Express gắn các router
+  config/                    env.js (biến bắt buộc), db.js (pool, sql()), settings.js (tham số nghiệp vụ có mặc định)
+  middlewares/  realtime/    xác thực cookie / Bearer, xử lý lỗi; Socket.IO (phòng user:<id>)
+  routes/ → controllers/ → services/     mỗi tầng chia admin/, customer/, worker/
   services/
-    customer/                app khách
-    worker/                  app thợ (B): tài khoản, hồ sơ, đơn, thu nhập, ví
-    matching/                bộ điều phối ghép cặp (B)
-    candidate.js, scoring.js lọc không gian + hàm điểm (dùng chung với trang Mô phỏng của admin)
-  matching/                  thuật toán thuần (B): hungarian.js, greedy.js, grouping.js
-scripts/                     seed demo, thợ ảo, khách giả lập, benchmark, khởi động Docker
+    admin/                   web quản trị: thợ, khách, đơn, danh mục, khiếu nại, tài chính, giám sát, báo cáo
+    customer/                app khách: tài khoản, đặt đơn, chat, thanh toán, đánh giá, khiếu nại
+    worker/                  app thợ (B): tài khoản, hồ sơ, đơn, thu nhập, ví, rút tiền
+    matching/                bộ điều phối ghép cặp (B): lọc ứng viên, hàng đợi, lời mời, vòng chạy nền
+    trust/                   điểm tin cậy (B)
+    shared/                  thông báo, email, push dùng chung
+  algorithms/                thuật toán thuần, không đụng CSDL (B): scoring, greedy, hungarian, grouping, trust
+  utils/                     AppError, JWT, transaction, kiểm tra dữ liệu vào, giờ VN
+migrations/                  SQL theo thứ tự (node-pg-migrate)
+scripts/                     seed demo, thợ ảo, khách giả lập, benchmark, tính lại điểm tin cậy, khởi động Docker
 test/                        kiểm thử (node:test)
-docs/                        CUSTOMER_API, WORKER_API, MATCHING, TICH_HOP_THANH_VIEN_B, HUONG_DAN_GOOGLE_FACEBOOK, thuc-nghiem/
-dev-tools/                   công cụ giả lập thợ cũ của app khách (không đưa vào image Docker)
+docs/                        KIEN_TRUC (bản đồ code), CUSTOMER_API, WORKER_API, ADMIN_API, MATCHING, TICH_HOP_THANH_VIEN_B,
+                             HUONG_DAN_GOOGLE_FACEBOOK, thuc-nghiem/
 ```
 
-**Thành viên nhóm (và trợ lý AI) đọc `CLAUDE.md` trước khi sửa code**: phạm vi, những điều không được làm, quy ước code, việc cần làm của từng người.
+**Thành viên nhóm (và trợ lý AI) đọc `CLAUDE.md` trước khi sửa code**: phạm vi, những điều không được làm, quy ước code, tình trạng các việc đã giao.
 
 Trong file dùng chung của nhóm, mọi chỗ thành viên B sửa đều có đánh dấu `[B]`. Danh sách đầy đủ và các việc cần 2 bạn còn lại làm khi ghép code nằm trong `docs/TICH_HOP_THANH_VIEN_B.md`.
 

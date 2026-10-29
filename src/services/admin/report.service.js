@@ -1,4 +1,4 @@
-import { query } from '../config/db.js';
+import { query } from '../../config/db.js';
 
 const TZ = 'Asia/Ho_Chi_Minh';
 

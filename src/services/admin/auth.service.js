@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
-import { query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
-import { signToken } from '../utils/jwt.js';
+import { query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
+import { signToken } from '../../utils/jwt.js';
 
 export const loginAdmin = async(identifier, password)=>{ 
     const {rows} = await  query (

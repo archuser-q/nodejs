@@ -11,7 +11,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
-import { settings } from '../config/worker.js';
+import { settings } from '../config/settings.js';
 import { AppError } from '../utils/AppError.js';
 import { requireMobileUser } from '../middlewares/requireWorker.js';
 

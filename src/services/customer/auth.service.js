@@ -7,12 +7,12 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { pool, q, sql } from '../../config/db.js';
 import { env } from '../../config/env.js';
-import { isProd, settings } from '../../config/worker.js';
+import { isProd, settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 import { signToken } from '../../utils/jwt.js';
 import { transaction } from '../../utils/tx.js';
 import { USER_FIELDS } from '../../middlewares/requireCustomer.js';
-import { sendEmail, smtpConfigured } from '../mail.service.js';
+import { sendEmail, smtpConfigured } from '../shared/mail.service.js';
 import { facebookEnabled, googleClientIds, verifyFacebook, verifyGoogle } from '../worker/social.js';
 
 const ROLE_LABEL = { customer: 'khách hàng', worker: 'thợ', admin: 'quản trị' };

@@ -5,7 +5,7 @@ import {
 } from './common.js';
 import { dispatchOffers, getConfig } from './dispatch.service.js';
 import { workerLevel } from '../worker/level.js';
-import { emitOrderUpdated, notify } from './notify.service.js';
+import { emitOrderUpdated, notify } from '../shared/notify.service.js';
 import { emitToUser } from '../../realtime/socket.js';
 import { refreshAvailability } from '../worker/state.js'; // [B]
 

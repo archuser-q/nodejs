@@ -8,8 +8,8 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as ioClient } from 'socket.io-client';
 import * as h from './helpers.js';
-import { settings } from '../src/config/worker.js';
-import { findCandidates } from '../src/services/candidate.js';
+import { settings } from '../src/config/settings.js';
+import { findCandidates } from '../src/services/matching/candidate.js';
 
 const { api, sql, off } = h;
 let BASE;
@@ -200,26 +200,27 @@ describe('Hồ sơ & xác minh', () => {
     assert.match(pend.body.message, /chờ quản trị viên duyệt/);
     assert.equal((await api('GET', '/api/worker/home', { token: w.token })).body.review_state, 'pending');
 
-    // admin (API của web quản trị) từ chối -> thợ thấy lý do, tải lại và gửi lại
-    status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'rejected', note: 'Ảnh CCCD bị mờ' } }), 200);
+    // Web quản trị duyệt từng giấy: từ chối riêng CCCD mặt trước (hồ sơ đang chờ thì chưa báo thợ, đợi admin chốt)
+    const front = (await api('GET', '/api/worker/documents', { token: w.token })).body.find((d) => d.doc_type === 'id_card_front');
+    status(await api('PATCH', `/api/admin/workers/${w.id}/documents/${front.id}`, { cookie: ADMIN, body: { status: 'rejected', reject_reason: 'Ảnh bị mờ' } }), 200);
+    const vNotes = async () => (await api('GET', '/api/worker/notifications', { token: w.token })).body.items.filter((n) => n.type === 'verification');
+    assert.equal((await vNotes()).length, 0);
+    // rồi chốt từ chối cả hồ sơ -> thợ được báo, thấy lý do chung + lý do của đúng giấy đó
+    status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'rejected', note: 'CCCD mặt trước chưa đạt' } }), 200);
     me = (await api('GET', '/api/worker/me', { token: w.token })).body;
     assert.equal(me.onboarding.verification_status, 'rejected');
-    const note = (await api('GET', '/api/worker/notifications', { token: w.token })).body.items[0];
-    assert.equal(note.type, 'verification');
-    assert.equal(note.body, 'Ảnh CCCD bị mờ');
-    assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: Ảnh CCCD bị mờ']); // không lặp lý do theo từng ảnh
+    assert.equal((await vNotes())[0].body, 'CCCD mặt trước chưa đạt');
+    assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: CCCD mặt trước chưa đạt', 'CCCD mặt trước: Ảnh bị mờ']);
     assert.equal(me.profile.review_state, 'rejected');
-    assert.deepEqual(Object.values(me.onboarding.documents).slice(0, 3), ['rejected', 'rejected', 'rejected']);
+    // giấy không bị từ chối riêng vẫn giữ nguyên, chỉ phải tải lại đúng giấy bị từ chối
+    assert.deepEqual([me.onboarding.documents.id_card_front, me.onboarding.documents.id_card_back, me.onboarding.documents.portrait], ['rejected', 'pending', 'pending']);
+    assert.deepEqual(me.onboarding.missing, ['Tải lại CCCD mặt trước']);
+    assert.equal(me.onboarding.can_submit, false);
     const rej = await api('PATCH', '/api/worker/availability', { token: w.token, body: { online: true, latitude: 21, longitude: 105 } });
-    assert.match(rej.body.message, /chưa được duyệt: Ảnh CCCD bị mờ/);
-    // hồ sơ bị từ chối mà giấy tờ không bị đánh dấu riêng (VD sửa tay trong CSDL): lý do chung vẫn hiện
-    await sql("UPDATE worker_documents SET status = 'approved', reject_reason = NULL WHERE worker_id = $1", [w.id]);
-    me = (await api('GET', '/api/worker/me', { token: w.token })).body;
-    assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: Ảnh CCCD bị mờ']);
-    await sql("UPDATE worker_documents SET status = 'rejected', reject_reason = 'Ảnh CCCD bị mờ' WHERE worker_id = $1", [w.id]);
-    for (const t of ['id_card_front', 'id_card_back', 'portrait']) {
-      await api('POST', '/api/worker/documents', { token: w.token, body: { doc_type: t, file_url: await h.upload(w.token) } });
-    }
+    assert.match(rej.body.message, /chưa được duyệt: CCCD mặt trước chưa đạt/);
+    // admin không duyệt được khi còn giấy bắt buộc chưa hợp lệ
+    status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'approved' } }), 400);
+    await api('POST', '/api/worker/documents', { token: w.token, body: { doc_type: 'id_card_front', file_url: await h.upload(w.token) } });
     status(await api('POST', '/api/worker/verification/submit', { token: w.token }), 200);
     status(await api('PATCH', `/api/admin/workers/${w.id}/verification`, { cookie: ADMIN, body: { status: 'approved' } }), 200);
     me = (await api('GET', '/api/worker/me', { token: w.token })).body;
@@ -470,6 +471,75 @@ describe('Luồng đơn đầy đủ (chế độ tức thời)', () => {
   });
 });
 
+describe('Điểm tin cậy (Trust Score)', () => {
+  beforeEach(() => reset({ mode: 'instant', maxOffers: 1 }));
+
+  const trustOf = async (w) => Number((await sql('SELECT trust_score FROM workers WHERE user_id = $1', [w.id]))[0].trust_score);
+  const lastHistory = async (w) =>
+    (await sql('SELECT trust_score, review_count, params FROM trust_score_history WHERE worker_id = $1 ORDER BY id DESC LIMIT 1', [w.id]))[0];
+  const finishJob = async (w, cus) => {
+    const oid = await h.order(cus, C.SVC);
+    status(await api('POST', `/api/worker/offers/${(await h.offer(w)).id}/accept`, { token: w.token }), 200);
+    await advance(w, oid, 'on_the_way');
+    await advance(w, oid, 'arrived');
+    await advance(w, oid, 'in_progress', { safety_confirmed: true });
+    await api('POST', `/api/worker/orders/${oid}/photos`, { token: w.token, body: { kind: 'after', urls: [await h.upload(w.token)] } });
+    status(await advance(w, oid, 'completed'), 200);
+    return oid;
+  };
+
+  test('tính lại sau hoàn thành, đánh giá, khiếu nại đúng, huỷ sau khi nhận; lưu lịch sử; app thợ xem được thành phần', async () => {
+    const w = await h.readyWorker(ADMIN, { name: 'Thợ Tin Cậy', at: off(0.4, 0), trust: 0 });
+    const cus = await h.customer();
+    assert.equal(await trustOf(w), 0); // thợ mới: chưa tính, ghép dùng cold start 0,5
+
+    // 1. hoàn thành 1 đơn (chưa có đánh giá, nền tảng < 20 đánh giá -> m = 4): 0,5·0,75 + 0,3·(5,5/6) + 0,2·1
+    const oid = await finishJob(w, cus);
+    const afterDone = await trustOf(w);
+    assert.ok(Math.abs(afterDone - 0.85) < 1e-4, String(afterDone));
+    assert.equal((await lastHistory(w)).params.reason, 'completed');
+
+    // 2. khách trả tiền + đánh giá 5 sao -> tăng
+    const pay = await api('POST', `/api/customer/orders/${oid}/payments`, { token: cus.token, body: { method: 'momo' } });
+    status(await api('POST', `/api/customer/payments/${pay.body.id}/sandbox-confirm`, { token: cus.token }), 200);
+    status(await api('POST', `/api/customer/orders/${oid}/review`, { token: cus.token, body: { rating: 5 } }), 201);
+    const afterReview = await trustOf(w);
+    assert.ok(afterReview > afterDone);
+    const hr = await lastHistory(w);
+    assert.equal(hr.params.reason, 'review');
+    assert.equal(hr.review_count, 1);
+
+    // 3. khiếu nại của khách: admin bác thì không đổi, xác nhận đúng thì giảm
+    const c1 = await api('POST', `/api/customer/orders/${oid}/complaints`, { token: cus.token, body: { title: 'Ổ cắm vẫn lỏng', content: 'Sửa xong 1 ngày lại lỏng' } });
+    status(c1, 201);
+    status(await api('PATCH', `/api/admin/complaints/${c1.body.id}`, { cookie: ADMIN, body: { status: 'rejected', resolution: 'Khách dùng sai cách' } }), 200);
+    assert.equal(await trustOf(w), afterReview);
+    const c2 = await api('POST', `/api/customer/orders/${oid}/complaints`, { token: cus.token, body: { title: 'Thợ làm cẩu thả', content: 'Để lại dây điện hở' } });
+    status(await api('PATCH', `/api/admin/complaints/${c2.body.id}`, { cookie: ADMIN, body: { status: 'resolved', resolution: 'Đã xác minh, nhắc nhở thợ' } }), 200);
+    const afterComplaint = await trustOf(w);
+    assert.ok(afterComplaint < afterReview);
+    assert.equal((await lastHistory(w)).params.reason, 'complaint');
+
+    // 4. nhận đơn rồi huỷ (chưa tới nơi) -> giảm
+    const oid2 = await h.order(cus, C.SVC);
+    status(await api('POST', `/api/worker/offers/${(await h.offer(w)).id}/accept`, { token: w.token }), 200);
+    status(await api('POST', `/api/worker/orders/${oid2}/cancel`, { token: w.token, body: { reason: 'Xe hỏng' } }), 200);
+    const afterCancel = await trustOf(w);
+    assert.ok(afterCancel < afterComplaint);
+    assert.equal((await lastHistory(w)).params.reason, 'worker_cancel');
+    assert.equal((await sql('SELECT COUNT(*)::int AS n FROM trust_score_history WHERE worker_id = $1', [w.id]))[0].n, 4);
+
+    // màn Hiệu suất của app thợ: điểm + 3 thành phần + trọng số để thợ hiểu vì sao
+    const perf = (await api('GET', '/api/worker/performance', { token: w.token })).body;
+    assert.equal(perf.trust.has_history, true);
+    assert.equal(perf.trust.score, afterCancel);
+    assert.deepEqual(Object.keys(perf.trust.components), ['rating', 'reliability', 'complaints']);
+    assert.deepEqual(perf.trust.inputs.completed, 1);
+    assert.deepEqual(perf.trust.inputs.cancelledAfterAccept, 1);
+    assert.deepEqual(perf.trust.inputs.validComplaints, 1);
+  });
+});
+
 // ═════════════════════════════════════════════════════════════════════════
 describe('Bộ điều phối', () => {
   test('từ chối -> đợt sau ngay; hết giờ -> expired; quá hạn chờ -> huỷ đơn; tắt nhận đơn -> offer đi tiếp', async () => {
@@ -543,6 +613,15 @@ describe('Bộ điều phối', () => {
     assert.deepEqual(c.history.map((x) => x.to_status), ['pending', 'matching', 'accepted', 'on_the_way', 'matching']);
     assert.equal((await api('GET', '/api/worker/performance', { token: w1.token })).body.jobs_cancelled_by_worker, 1);
     status(await api('GET', `/api/worker/orders/${oid}`, { token: w1.token }), 404); // không còn là đơn của thợ 1
+    // ...nhưng vẫn hiện ở tab "Đã hủy" của thợ 1 (lần huỷ bị trừ điểm Giữ lời), không lộ tiền / tin nhắn của đơn
+    const cancelled1 = async () => (await api('GET', '/api/worker/orders?group=cancelled', { token: w1.token })).body;
+    let l1 = await cancelled1();
+    assert.equal(l1.total, 1);
+    assert.equal(l1.items[0].id, oid);
+    assert.equal(l1.items[0].handed_over, true);
+    assert.equal(l1.items[0].cancelled_by_role, 'worker');
+    assert.equal(l1.items[0].cancel_reason, 'Xe bị hỏng giữa đường');
+    assert.equal(l1.items[0].net_earning, null);
 
     await api('POST', `/api/worker/offers/${b.id}/accept`, { token: w2.token });
     await advance(w2, oid, 'on_the_way');
@@ -551,6 +630,15 @@ describe('Bộ điều phối', () => {
     assert.equal(r2.body.status, 'cancelled');
     assert.equal((await api('GET', `/api/customer/orders/${oid}`, { token: cus.token })).body.cancel_reason, '[Thợ] Khách không có mặt');
     status(await advance(w2, oid, 'in_progress'), 400); // đơn đã huỷ: không đi tiếp được
+    const l2 = (await api('GET', '/api/worker/orders?group=cancelled', { token: w2.token })).body;
+    assert.equal(l2.total, 1);
+    assert.deepEqual(
+      [l2.items[0].id, l2.items[0].handed_over, l2.items[0].cancelled_by_role, l2.items[0].cancel_reason],
+      [oid, false, 'worker', 'Khách không có mặt'],
+    );
+    l1 = await cancelled1(); // thợ 1 vẫn thấy đúng 1 dòng (không trùng khi đơn đã huỷ hẳn)
+    assert.equal(l1.total, 1);
+    assert.equal(l1.items[0].handed_over, true);
     assert.equal((await api('GET', '/api/worker/home', { token: w2.token })).body.availability, 'online');
   });
 
@@ -762,6 +850,9 @@ describe('Realtime (Socket.IO) + admin', () => {
       const notes = await api('GET', '/api/worker/notifications', { token: w.token });
       assert.equal(notes.body.items[0].title, 'Đơn đã bị huỷ');
       assert.equal(notes.body.items[0].data.order_id, oid2);
+      // tab "Đã hủy" của thợ ghi rõ quản trị viên huỷ, kèm lý do
+      const c = (await api('GET', '/api/worker/orders?group=cancelled', { token: w.token })).body.items.find((x) => x.id === oid2);
+      assert.deepEqual([c.cancelled_by_role, c.cancel_reason, c.handed_over], ['admin', 'Khách báo không cần nữa', false]);
     } finally {
       ws.close();
     }
@@ -788,8 +879,11 @@ describe('Realtime (Socket.IO) + admin', () => {
       const home = (await api('GET', '/api/worker/home', { token: w.token })).body;
       assert.deepEqual([home.availability, home.review_state, home.can_go_online], ['offline', 'rejected', false]);
       assert.match(home.blockers[0], /Ảnh chân dung không rõ mặt/);
-      const docs = (await api('GET', '/api/worker/me', { token: w.token })).body.onboarding.documents;
-      assert.equal(docs.portrait, 'rejected');
+      // giấy tờ giữ nguyên trạng thái (web quản trị duyệt từng giấy); app thợ không ghi "Hợp lệ" khi hồ sơ bị bỏ duyệt
+      const me = (await api('GET', '/api/worker/me', { token: w.token })).body;
+      assert.equal(me.onboarding.documents.portrait, 'approved');
+      assert.equal(me.profile.review_state, 'rejected');
+      assert.deepEqual(me.onboarding.reject_reasons, ['Hồ sơ bị từ chối: Ảnh chân dung không rõ mặt']);
     } finally {
       ws.close();
     }

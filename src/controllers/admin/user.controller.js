@@ -1,4 +1,4 @@
-import * as userService from '../../services/user.service.js';
+import * as userService from '../../services/admin/user.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const ROLES = ['customer', 'worker'];

@@ -1,4 +1,4 @@
-import * as notifyService from '../../services/customer/notify.service.js';
+import * as notifyService from '../../services/shared/notify.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 // Thông báo gửi cho tài khoản admin (VD: "Hồ sơ thợ chờ duyệt", "Thợ cập nhật giấy tờ" từ app thợ)

@@ -2,7 +2,7 @@ import http from 'http'
 import app from './app.js'
 import { env } from './config/env.js'
 import { initSocket } from './realtime/socket.js'
-import { settings } from './config/worker.js'
+import { settings } from './config/settings.js'
 import { dispatcher } from './services/matching/dispatcher.js'
 
 const server = http.createServer(app)

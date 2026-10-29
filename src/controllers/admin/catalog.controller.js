@@ -1,4 +1,4 @@
-import * as catalogService from '../../services/catalog.service.js';
+import * as catalogService from '../../services/admin/catalog.service.js';
 import { AppError } from '../../utils/AppError.js';
 
 const isId = (v) => /^\d+$/.test(String(v));

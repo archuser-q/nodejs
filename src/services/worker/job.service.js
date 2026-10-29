@@ -8,14 +8,15 @@
  *     và không còn báo giá chờ khách duyệt
  */
 import { pool, q, sql } from '../../config/db.js';
-import { settings } from '../../config/worker.js';
+import { settings } from '../../config/settings.js';
 import { AppError } from '../../utils/AppError.js';
 import { transaction } from '../../utils/tx.js';
 import { givenName, money, vnClock, vnTime } from '../../utils/vn.js';
 import { addHistory } from '../customer/common.js';
-import { emitOrderUpdated, notify } from '../customer/notify.service.js';
+import { emitOrderUpdated, notify } from '../shared/notify.service.js';
 import * as dispatch from '../matching/dispatch.service.js';
 import { OPEN_JOB_STATUSES, commissionOf, refreshAvailability } from './state.js';
+import { recalcTrustScore } from '../trust/trust.service.js';
 
 export const NEXT_STATUS = { accepted: 'on_the_way', on_the_way: 'arrived', arrived: 'in_progress', in_progress: 'completed' };
 const NEXT_ACTION = {
@@ -102,7 +103,17 @@ const ITEM_SQL = `
               THEN pay.amount - COALESCE(o.commission_amount, ROUND(pay.amount * $2)) END AS net_earning,
          (SELECT COUNT(*) FROM messages m
           WHERE m.order_id = o.id AND m.sender_id <> $1 AND m.read_at IS NULL)::int AS unread_messages,
-         r.rating
+         r.rating,
+         -- Đơn đã huỷ: ai huỷ (nhìn từ phía thợ đang xem) và lý do
+         CASE WHEN o.status <> 'cancelled' THEN NULL
+              WHEN o.cancelled_by = $1 THEN 'worker'
+              WHEN o.cancelled_by = o.customer_id THEN 'customer'
+              WHEN o.cancelled_by IS NULL THEN 'system'
+              ELSE 'admin' END AS cancelled_by_role,
+         CASE WHEN o.status <> 'cancelled' THEN NULL
+              WHEN o.cancel_reason LIKE '[Thợ] %' THEN substr(o.cancel_reason, 7) -- bỏ tiền tố "[Thợ] " (cancelJob)
+              ELSE o.cancel_reason END AS cancel_reason,
+         FALSE AS handed_over
   FROM orders o
   JOIN services s ON s.id = o.service_id
   JOIN service_categories c ON c.id = s.category_id
@@ -119,7 +130,49 @@ export async function jobItems(workerId, ids) {
   return ids.map((id) => byId.get(Number(id))).filter(Boolean);
 }
 
+/**
+ * Đơn thợ đã nhận rồi "Hủy nhận việc" khi chưa tới nơi: đơn quay lại hàng đợi và chuyển cho thợ khác nên không còn
+ * đứng tên thợ này (orders.worker_id), nhưng lần huỷ vẫn bị trừ điểm Giữ lời -> vẫn hiện ở tab "Đã hủy" của thợ.
+ * Chỉ trả thông tin thợ đã thấy lúc nhận; không trả tiền, tin nhắn, đánh giá của thợ khác. Không mở được chi tiết.
+ */
+const HANDED_OVER_SQL = `
+  SELECT o.id, o.code, o.status, o.service_id, s.name AS service_name, c.name AS category_name, o.address_text,
+         ST_Y(o.location::geometry) AS latitude, ST_X(o.location::geometry) AS longitude,
+         o.scheduled_at, o.created_at, NULL::timestamptz AS accepted_at, NULL::timestamptz AS started_at,
+         NULL::timestamptz AS completed_at, f.responded_at AS cancelled_at,
+         o.estimated_price, 0 AS extra_amount, NULL::numeric AS final_price, o.estimated_price AS total_amount,
+         o.customer_id, cu.full_name AS customer_name, FALSE AS paid, NULL AS payment_method, NULL::numeric AS net_earning,
+         0 AS unread_messages, NULL::int AS rating,
+         'worker' AS cancelled_by_role, f.reason AS cancel_reason, TRUE AS handed_over,
+         COUNT(*) OVER()::int AS total
+  FROM order_offers f
+  JOIN orders o ON o.id = f.order_id
+  JOIN services s ON s.id = o.service_id
+  JOIN service_categories c ON c.id = s.category_id
+  JOIN users cu ON cu.id = o.customer_id
+  WHERE f.worker_id = $1 AND f.status = 'cancelled' AND o.worker_id IS DISTINCT FROM $1`;
+
+/** Tab "Đã hủy": đơn huỷ còn đứng tên thợ (khách / admin / thợ huỷ khi đã tới) + đơn thợ huỷ nhận đã chuyển thợ khác */
+async function listCancelled(workerId, { pageSize, offset }) {
+  const lim = offset + pageSize; // lấy đủ phần đầu của cả 2 nguồn rồi trộn theo thời điểm huỷ
+  const [own, handed] = await Promise.all([
+    q(
+      `SELECT t.*, COUNT(*) OVER()::int AS total FROM (${ITEM_SQL} WHERE o.worker_id = $1 AND o.status = 'cancelled') t
+       ORDER BY t.cancelled_at DESC NULLS LAST, t.id DESC LIMIT $3`,
+      [workerId, settings.commissionRate, lim],
+    ),
+    q(`${HANDED_OVER_SQL} ORDER BY f.responded_at DESC NULLS LAST, o.id DESC LIMIT $2`, [workerId, lim]),
+  ]);
+  const at = (r) => new Date(r.cancelled_at ?? r.created_at).getTime();
+  const merged = [...own.rows, ...handed.rows].sort((a, b) => at(b) - at(a) || Number(b.id) - Number(a.id));
+  return {
+    items: merged.slice(offset, offset + pageSize).map(({ total, ...r }) => r),
+    total: (own.rows[0]?.total ?? 0) + (handed.rows[0]?.total ?? 0),
+  };
+}
+
 export async function listJobs(workerId, group, { pageSize, offset }) {
+  if (group === 'cancelled') return listCancelled(workerId, { pageSize, offset });
   const order =
     group === 'active'
       ? 'o.scheduled_at ASC NULLS FIRST, o.accepted_at DESC'
@@ -284,6 +337,7 @@ export async function advanceStatus(workerId, orderId, status, safetyConfirmed) 
       );
       total = rows[0].final_price;
       await sql(db, 'UPDATE workers SET total_jobs = total_jobs + 1, updated_at = NOW() WHERE user_id = $1', [workerId]);
+      await recalcTrustScore(db, workerId, 'completed');
     } else {
       await sql(db, 'UPDATE orders SET status = $2::order_status, updated_at = NOW() WHERE id = $1', [orderId, status]);
     }
@@ -308,6 +362,7 @@ export async function cancelJob(workerId, orderId, reason) {
       // Chưa tới nơi: trả đơn về hàng đợi để hệ thống tìm thợ khác (không mời lại thợ này)
       requeueMode = await dispatch.requeueAfterWorkerCancel(db, after, o, workerId, reason);
       await refreshAvailability(db, workerId);
+      await recalcTrustScore(db, workerId, 'worker_cancel'); // nhận rồi huỷ: giảm độ tin cậy
       return 'matching';
     }
     if (o.status === 'arrived') {
@@ -325,6 +380,7 @@ export async function cancelJob(workerId, orderId, reason) {
       );
       await sql(db, "UPDATE order_extra_quotes SET status = 'cancelled', responded_at = NOW() WHERE order_id = $1 AND status = 'pending'", [orderId]);
       await refreshAvailability(db, workerId);
+      await recalcTrustScore(db, workerId, 'worker_cancel');
       after(async () => {
         emitOrderUpdated({ ...o, status: 'cancelled' });
         await notify(o.customer_id, { title: 'Đơn đã bị huỷ', body: `Thợ đã huỷ đơn ${o.code}: ${reason}`, type: 'order', data: { order_id: o.id } });

@@ -1,4 +1,4 @@
-import * as dashboardService from '../../services/dashboard.service.js';
+import * as dashboardService from '../../services/admin/dashboard.service.js';
 
 export const overview = async (req, res) => {
   res.json(await dashboardService.getOverview());

@@ -9,12 +9,11 @@
     "migrate": "node-pg-migrate -m migrations --envPath .env -j sql",
     "migrate:create": "node-pg-migrate create -m migrations -j sql",
     "create-admin": "node scripts/create-admin.js",
-    "simulate": "node dev-tools/simulate-worker.js",
-    "seed:dev": "node dev-tools/seed-dev.js",
     "seed:demo": "node scripts/seed-demo.js",
     "bots": "node scripts/worker-bots.js",
     "demo:customer": "node scripts/demo-customer.js",
     "benchmark": "node scripts/benchmark-matching.js",
+    "trust:recalc": "node scripts/recalc-trust.js",
     "test": "node test/setup-db.js && node --test --test-concurrency=1 \"test/*.test.js\"",
     "test:algo": "node --test test/algorithms.test.js"
   },

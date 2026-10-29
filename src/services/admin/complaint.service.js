@@ -1,5 +1,6 @@
-import { query } from '../config/db.js';
-import { AppError } from '../utils/AppError.js';
+import { pool, query } from '../../config/db.js';
+import { AppError } from '../../utils/AppError.js';
+import { recalcTrustScore } from '../trust/trust.service.js';
 
 // source: 'customer' = khách gửi (reporter_id NULL), 'worker' = thợ báo cáo sự cố từ app thợ (reporter_id = id thợ)
 // workerId: chỉ lấy sự cố liên quan 1 thợ = báo cáo thợ đó gửi + khiếu nại của khách về đơn thợ đó làm
@@ -93,6 +94,11 @@ export const handleComplaint = async (id, adminId, status, resolution) => {
     const { rows: exists } = await query('SELECT status FROM complaints WHERE id = $1', [id]);
     if (!exists[0]) throw new AppError(404, 'Không tìm thấy khiếu nại');
     throw new AppError(400, 'Khiếu nại này đã đóng');
+  }
+  // Khiếu nại của khách được xác nhận đúng làm giảm điểm tin cậy của thợ làm đơn đó
+  if (closing && !rows[0].reporter_id) {
+    const { rows: o } = await query('SELECT worker_id FROM orders WHERE id = $1', [rows[0].order_id]);
+    if (o[0]?.worker_id) await recalcTrustScore(pool, Number(o[0].worker_id), 'complaint');
   }
   return rows[0];
 };

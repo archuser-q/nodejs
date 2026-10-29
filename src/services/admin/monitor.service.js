@@ -1,4 +1,4 @@
-import { query } from '../config/db.js';
+import { query } from '../../config/db.js';
 
 // Đơn còn đang chạy (chưa hoàn thành / huỷ) để vẽ lên bản đồ tổng
 const ACTIVE_STATUSES = ['pending', 'matching', 'accepted', 'on_the_way', 'arrived', 'in_progress'];

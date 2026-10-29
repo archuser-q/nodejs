@@ -1,5 +1,5 @@
-import { pool, sql } from "../config/db.js";
-import { settings } from "../config/worker.js";
+import { pool, sql } from "../../config/db.js";
+import { settings } from "../../config/settings.js";
 
 /**
  * Tìm thợ ứng viên quanh 1 điểm bằng chỉ mục không gian (GiST trên workers.current_location).
